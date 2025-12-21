@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phoenix_engine"
+version = "13.0.0"
+description = "High-precision Vedic Astrology Engine using Swiss Ephemeris"
+authors = [
+  { name = "Mehran", email = "mehraneskandari46@Gmail.com" },
+]
+requires-python = ">=3.9"
+dependencies = [
+    "pyswisseph>=2.10",
+    "pydantic>=2.0",
+    "pytz",
+    "typing-extensions",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "requests>=2.31.0",
+    "httpx>=0.24.0"
+]
+
+[project.scripts]
+phoenix = "phoenix_engine.api.app:start"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["phoenix_engine*"]
+exclude = ["tests*", "scripts*", "data*", "archives*", "_*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+
+# Distribution / Packaging
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+
+# VS Code
+.vscode/
+
+# Project specific
+*.json
+!package.json
+!tsconfig.json
+# Note: We exclude *.json generally to avoid pushing generated charts, but keep config files if any.
+
+.venv/
