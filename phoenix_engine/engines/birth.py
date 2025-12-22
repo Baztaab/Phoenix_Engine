@@ -64,6 +64,7 @@ class BirthChartEngine:
             panchanga=analysis.get('panchanga'),
             dashas=analysis.get('dashas'),
             current_dasha_chain=analysis.get('current_dasha_chain'),
+            transits=analysis.get('transits'),
             
             # Nested fields
             avasthas=analysis.get('avasthas'),

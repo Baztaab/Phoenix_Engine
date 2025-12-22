@@ -39,3 +39,4 @@ class ChartOutput(BaseModel):
     # New Plugins
     dosha: Optional[DoshaResult] = None
     semantics: Optional[SemanticOutput] = None
+    transits: Optional[Dict[str, Any]] = None

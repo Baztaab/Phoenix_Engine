@@ -16,6 +16,7 @@ from phoenix_engine.plugins.advanced_dashas import AdvancedDashasPlugin
 from phoenix_engine.plugins.jaimini_plugin import JaiminiIndicatorsPlugin
 from phoenix_engine.plugins.parasari_yogas_plugin import ParasariYogasPlugin
 from phoenix_engine.plugins.ashtakavarga_plugin import AshtakavargaPlugin
+from phoenix_engine.plugins.transit_plugin import TransitAnalysisPlugin
 # Note: Matching plugins are called separately in MatchEngine
 
 class ChartFactory:
@@ -36,6 +37,7 @@ class ChartFactory:
             pipeline.append(VargaPlugin())
             pipeline.append(StrengthPlugin())
             pipeline.append(AshtakavargaPlugin())
+            pipeline.append(TransitAnalysisPlugin())
             pipeline.append(PredictionPlugin())
             pipeline.append(TimingPlugin())
             pipeline.append(AdvancedDashasPlugin())
