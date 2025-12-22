@@ -13,6 +13,7 @@ from phoenix_engine.plugins.jaimini import JaiminiPlugin
 from phoenix_engine.plugins.doshas.kuja import KujaDoshaPlugin
 from phoenix_engine.plugins.doshas.sarpa import KalaSarpaPlugin
 from phoenix_engine.plugins.subtle import SubtleBodiesPlugin
+from phoenix_engine.plugins.advanced_dashas import AdvancedDashasPlugin
 # Note: Matching plugins are called separately in MatchEngine
 
 class ChartFactory:
@@ -33,6 +34,7 @@ class ChartFactory:
             pipeline.append(PredictionPlugin())
             pipeline.append(TimingPlugin())
             pipeline.append(JaiminiPlugin())
+            pipeline.append(AdvancedDashasPlugin())
             
             # 3. Optional Features
             if config.output.include_doshas:

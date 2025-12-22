@@ -24,6 +24,19 @@ class SubtleBodiesPlugin(IChartPlugin):
         # FIX: Handle rise/set failure gracefully
         sunrise_jd, sunset_jd = swe.get_rise_set(ctx.jd_ut, ctx.input.lat, ctx.input.lon)
         
+        # Calculate Panchanga (Phase 2 Upgrade)
+        try:
+            from phoenix_engine.vedic.calculations.panchanga import PanchangaEngine
+            if 'Sun' in ctx.planets and 'Moon' in ctx.planets:
+                sun_lon = ctx.planets['Sun'].longitude
+                moon_lon = ctx.planets['Moon'].longitude
+                panchanga_data = PanchangaEngine.calculate_panchanga(
+                    ctx.jd_ut, sun_lon, moon_lon, sunrise_jd
+                )
+                ctx.analysis['panchanga'] = panchanga_data
+        except Exception:
+            pass
+        
         # If calculation failed (0.0), we can't compute accurate Mandi/Gulika
         # But UpagrahaEngine now handles 0.0 safely.
         wd_idx = int(ctx.jd_ut + 1.5) % 7
