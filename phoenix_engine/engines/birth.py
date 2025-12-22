@@ -60,6 +60,7 @@ class BirthChartEngine:
             ashtakavarga=analysis.get('ashtakavarga'),
             jaimini=analysis.get('jaimini'),
             yogas=analysis.get('yogas'),
+            parasari_yogas=analysis.get('parasari_yogas'),
             panchanga=analysis.get('panchanga'),
             dashas=analysis.get('dashas'),
             current_dasha_chain=analysis.get('current_dasha_chain'),

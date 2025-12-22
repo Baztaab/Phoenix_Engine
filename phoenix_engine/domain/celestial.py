@@ -13,6 +13,8 @@ class PlanetPosition(BaseModel):
     house: int
     nakshatra: str
     nakshatra_pada: int
+    ishta: float = 0.0
+    kashta: float = 0.0
 
 class AspectInfo(BaseModel):
     aspecting_planet: str

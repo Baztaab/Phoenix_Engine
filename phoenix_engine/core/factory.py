@@ -9,11 +9,13 @@ from phoenix_engine.plugins.vargas import VargaPlugin
 from phoenix_engine.plugins.strength import StrengthPlugin
 from phoenix_engine.plugins.prediction import PredictionPlugin
 from phoenix_engine.plugins.timing import TimingPlugin
-from phoenix_engine.plugins.jaimini import JaiminiPlugin
 from phoenix_engine.plugins.doshas.kuja import KujaDoshaPlugin
 from phoenix_engine.plugins.doshas.sarpa import KalaSarpaPlugin
 from phoenix_engine.plugins.subtle import SubtleBodiesPlugin
 from phoenix_engine.plugins.advanced_dashas import AdvancedDashasPlugin
+from phoenix_engine.plugins.jaimini_plugin import JaiminiIndicatorsPlugin
+from phoenix_engine.plugins.parasari_yogas_plugin import ParasariYogasPlugin
+from phoenix_engine.plugins.ashtakavarga_plugin import AshtakavargaPlugin
 # Note: Matching plugins are called separately in MatchEngine
 
 class ChartFactory:
@@ -27,13 +29,15 @@ class ChartFactory:
             # 1. Base Astronomy (Always First)
             pipeline.append(PlanetaryPositionsPlugin())
             pipeline.append(SubtleBodiesPlugin())
+            pipeline.append(JaiminiIndicatorsPlugin())
+            pipeline.append(ParasariYogasPlugin())
             
             # 2. Core Vedic Calculations
             pipeline.append(VargaPlugin())
             pipeline.append(StrengthPlugin())
+            pipeline.append(AshtakavargaPlugin())
             pipeline.append(PredictionPlugin())
             pipeline.append(TimingPlugin())
-            pipeline.append(JaiminiPlugin())
             pipeline.append(AdvancedDashasPlugin())
             
             # 3. Optional Features

@@ -2,7 +2,7 @@
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 from .celestial import PlanetPosition, AspectInfo
-from .analysis import ShadbalaInfo, JaiminiInfo, DoshaResult
+from .analysis import DoshaResult
 from .enums import AyanamsaSystem, HouseSystem
 
 class SemanticOutput(BaseModel):
@@ -18,10 +18,11 @@ class ChartOutput(BaseModel):
     
     # Analysis Modules
     vargas: Optional[Dict[str, Any]] = None
-    shadbala: Optional[Dict[str, ShadbalaInfo]] = None
+    shadbala: Optional[Dict[str, Any]] = None
     ashtakavarga: Optional[Dict[str, Any]] = None
-    jaimini: Optional[JaiminiInfo] = None # Using model
+    jaimini: Optional[Dict[str, Any]] = None
     yogas: Optional[List[str]] = None
+    parasari_yogas: Optional[List[Dict[str, Any]]] = None
     
     # Timing
     panchanga: Optional[Dict[str, Any]] = None

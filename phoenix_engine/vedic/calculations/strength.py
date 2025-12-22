@@ -1,295 +1,291 @@
-
 import math
-from typing import Dict, List, Any
 import swisseph as swe
-from .varga import VargaEngine
-from .maitri import MaitriEngine
+from typing import Dict, List, Any, Tuple
+from datetime import datetime, timedelta
+from phoenix_engine.vedic.calculations.varga import VargaEngine
+from phoenix_engine.vedic.calculations.maitri import MaitriEngine
+from phoenix_engine.vedic.const import SUN, MOON, MARS, MERCURY, JUPITER, VENUS, SATURN
+
 
 class ShadbalaEngine:
     """
-    موتور کامل شادبالا (Vedic Planetary Strength) - نسخه JHora Compatible
+    موتور محاسبه Shadbala (قدرت شش‌گانه) - پورت شده از JHora (نسخه ساده‌شده).
     """
-
+    
     EXALTATION_POINTS = {
         "Sun": 10, "Moon": 33, "Mars": 298, "Mercury": 165,
         "Jupiter": 95, "Venus": 357, "Saturn": 200
     }
     
-    # حداقل قدرت لازم (Minimum Shadbala Requirements in Rupas)
-    MIN_REQ = {
+    MIN_REQ_RUPAS = {
         "Sun": 6.5, "Moon": 6.0, "Mars": 5.0, "Mercury": 7.0,
         "Jupiter": 6.5, "Venus": 5.5, "Saturn": 5.0
     }
+    
+    PLANET_NAMES_ORDER = ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]
 
-    # ---------------------------------------------------------
-    # 1. STHANA BALA (Positional Strength)
-    # ---------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # 1. STHANA BALA
+    # -------------------------------------------------------------------------
     @staticmethod
-    def calc_sthana_bala(p_name: str, p_data: Any, vargas: Dict[str, int]) -> float:
-        total_sthana = 0.0
-        
-        # A. Uchcha Bala (Exaltation)
+    def _uchcha_bala(p_name: str, p_lon: float) -> float:
         deep_exalt = ShadbalaEngine.EXALTATION_POINTS.get(p_name, 0)
-        diff = abs(p_data.longitude - deep_exalt)
-        if diff > 180: diff = 360 - diff
-        uchcha = (180 - diff) / 3.0 # Result in Virupas
-        total_sthana += uchcha
-        
-        # B. Saptavargaja Bala (7 Divisional Charts Strength)
-        # Rule: Friend=15, Own=30, Neutral=10, Enemy=4, G.Enemy=2, G.Friend=22.5 (Simplified Parashara)
-        # JHora simplified values often used:
-        # Own/Exalt=45, AdhiMitra=40, Mitra=30, Sama=20, Satru=10, AdhiSatru=4 approx.
-        # Let's use Standard Parashara for Saptavarga:
-        # Moolatrikona=45, Swakshetra=30, Adhi Mitra=22.5, Mitra=15, Sama=7.5, Satru=3.75, AdhiSatru=1.875
-        
-        # We need to check relation in D1, D2, D3, D7, D9, D12, D30
+        diff = abs(p_lon - deep_exalt)
+        if diff > 180:
+            diff = 360 - diff
+        return (180.0 - diff) / 3.0
+
+    @staticmethod
+    def _saptavargaja_bala(p_name: str, vargas: Dict[str, int], compound_rels: Dict[str, str]) -> float:
+        score_map = {
+            "Own": 30.0, "Adhi Mitra": 22.5, "Mitra": 15.0,
+            "Sama": 7.5, "Satru": 3.75, "Adhi Satru": 1.875
+        }
         required_vargas = ["D1", "D2", "D3", "D7", "D9", "D12", "D30"]
-        p_sign_d1 = vargas["D1"]
-        
-        varga_sum = 0
-        for v_name in required_vargas:
-            sign = vargas[v_name]
-            relation = MaitriEngine.get_compound_relation(p_name, sign, p_sign_d1)
-            
-            score = 7.5 # Sama default
-            if relation == "Own": score = 30
-            elif relation == "Adhi Mitra": score = 22.5
-            elif relation == "Mitra": score = 15
-            elif relation == "Satru": score = 3.75
-            elif relation == "Adhi Satru": score = 1.875
-            
-            varga_sum += score
-            
-        total_sthana += varga_sum
-        
-        # C. Ojayugma Rasyamsa Bala (Odd/Even Sign placement)
-        # Odd Signs: Sun, Mars, Jup, Mer, Ketu get 15 Virupas (Navamsa logic differs)
-        # Even Signs: Moon, Venus, Sat, Rahu get 15 Virupas
-        # Logic: Needs check in D1 and D9.
-        # Simplified:
-        d1_odd = (vargas["D1"] % 2 != 0)
-        d9_odd = (vargas["D9"] % 2 != 0)
-        
+        total_score = 0.0
+        rulers = {1:"Mars", 2:"Venus", 3:"Mercury", 4:"Moon", 5:"Sun", 6:"Mercury", 
+                  7:"Venus", 8:"Mars", 9:"Jupiter", 10:"Saturn", 11:"Saturn", 12:"Jupiter"}
+
+        for v_code in required_vargas:
+            p_sign = vargas.get(v_code, 1)
+            lord_name = rulers.get(p_sign)
+            if lord_name == p_name:
+                rel = "Own"
+            else:
+                rel = compound_rels.get(lord_name, "Sama")
+            total_score += score_map.get(rel, 7.5)
+        return total_score
+
+    @staticmethod
+    def _ojayugma_bala(p_name: str, vargas: Dict[str, int]) -> float:
         male_planets = ["Sun", "Mars", "Jupiter", "Mercury"]
-        female_planets = ["Moon", "Venus", "Saturn"] # Saturn is neuter but often grouped here for strength
-        
-        score_oj = 0
-        if p_name in male_planets:
-            if d1_odd: score_oj += 15
-            if d9_odd: score_oj += 15
-        elif p_name in female_planets:
-            if not d1_odd: score_oj += 15
-            if not d9_odd: score_oj += 15
-            
-        total_sthana += score_oj
-        
-        # D. Kendra Bala (Angles)
-        # Planet in 1,4,7,10 = 60, 2,5,8,11 = 30, 3,6,9,12 = 15
-        h = p_data.house
-        if h in [1, 4, 7, 10]: total_sthana += 60
-        elif h in [2, 5, 8, 11]: total_sthana += 30
-        else: total_sthana += 15
-        
-        # E. Drekkana Bala (Gender)
-        # Male planets in 1st decan... (Complex, skipping for now to save space, minor impact)
-        
-        return total_sthana / 60.0 # Convert Virupa to Rupa
+        score = 0.0
+        for chart in ["D1", "D9"]:
+            sign = vargas.get(chart, 1)
+            is_odd = (sign % 2 != 0)
+            if p_name in male_planets:
+                if is_odd:
+                    score += 15
+            else:
+                if not is_odd:
+                    score += 15
+        return score
 
-    # ---------------------------------------------------------
-    # 2. DIG BALA (Directional Strength)
-    # ---------------------------------------------------------
     @staticmethod
-    def calc_dig_bala(p_name: str, lon: float, asc_lon: float) -> float:
-        # Asc = East, 180 = West, 270 = South (MC), 90 = North (IC) relative to Asc
-        # House 1 cusp is approx Asc.
-        # Dig Bala points:
-        # Sun, Mars: 10th House (South) -> Asc + 270
-        # Moon, Venus: 4th House (North) -> Asc + 90
-        # Sat: 7th House (West) -> Asc + 180
-        # Mer, Jup: 1st House (East) -> Asc
-        
-        target = 0
-        if p_name in ["Sun", "Mars"]: target = (asc_lon + 270) % 360 # South/MC
-        elif p_name in ["Moon", "Venus"]: target = (asc_lon + 90) % 360 # North/IC
-        elif p_name in ["Saturn"]: target = (asc_lon + 180) % 360 # West/Dsc
-        else: target = asc_lon # East/Asc
-        
-        diff = abs(lon - target)
-        if diff > 180: diff = 360 - diff
-        
-        virupas = (180 - diff) / 3.0
-        return virupas / 60.0
+    def _kendra_bala(p_sign_d1: int, asc_sign_d1: int) -> float:
+        h_num = (p_sign_d1 - asc_sign_d1 + 1)
+        if h_num <= 0:
+            h_num += 12
+        if h_num in [1, 4, 7, 10]:
+            return 60.0
+        if h_num in [2, 5, 8, 11]:
+            return 30.0
+        return 15.0
 
-    # ---------------------------------------------------------
-    # 3. KAALA BALA (Temporal Strength) - APPROXIMATED
-    # ---------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # 2. DIG BALA
+    # -------------------------------------------------------------------------
     @staticmethod
-    def calc_kaala_bala(p_name: str, is_day: bool) -> float:
-        # A. Natonnata Bala (Day/Night)
-        # Day: Sun, Jup, Ven get 60. Night: Moon, Mars, Sat get 60. Mer gets 60 always.
-        natonnata = 0
-        if p_name == "Mercury": natonnata = 60
-        elif is_day and p_name in ["Sun", "Jupiter", "Venus"]: natonnata = 60
-        elif not is_day and p_name in ["Moon", "Mars", "Saturn"]: natonnata = 60
-        
-        # B. Paksha Bala (Moon Phase)
-        # Benefics (Jup, Ven) get Paksha points. Malefics (Sun, Mars, Sat) get (60 - Paksha).
-        # Assuming avg moon phase (full) for now -> 30 virupas avg base
-        paksha = 30 
-        
-        # C. Tribhaga (Part of day) - Avg 20
-        # D. Year/Month/Day Lord - Avg 15
-        
-        # Total approx for stability without heavy almanac calc
-        total_virupa = natonnata + paksha + 35 
-        return total_virupa / 60.0
+    def _dig_bala(p_name: str, p_lon: float, asc_lon: float) -> float:
+        targets = {
+            "Sun": 270, "Mars": 270,
+            "Moon": 90, "Venus": 90,
+            "Saturn": 180,
+            "Mercury": 0, "Jupiter": 0
+        }
+        target_offset = targets.get(p_name, 0)
+        target_lon = (asc_lon + target_offset) % 360
+        diff = abs(p_lon - target_lon)
+        if diff > 180:
+            diff = 360 - diff
+        return (180.0 - diff) / 3.0
 
-    # ---------------------------------------------------------
-    # 4. CHESTA BALA (Motional Strength)
-    # ---------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # 3. KAALA BALA
+    # -------------------------------------------------------------------------
     @staticmethod
-    def calc_chesta_bala(p_name: str, speed: float, is_rx: bool) -> float:
-        # Simplified JHora Logic based on Speed
+    def _natonnata_bala(p_name: str, is_day: bool) -> float:
+        if p_name == "Mercury":
+            return 60.0
+        if p_name in ["Moon", "Mars", "Saturn"]:
+            return 60.0 if not is_day else 0.0
+        return 60.0 if is_day else 0.0
+
+    @staticmethod
+    def _paksha_bala(p_name: str, moon_lon: float, sun_lon: float) -> float:
+        angle = (moon_lon - sun_lon) % 360
+        if angle > 180:
+            angle = 360 - angle
+        score = (angle / 180.0) * 60.0
+        benefics = ["Jupiter", "Venus", "Moon", "Mercury"]
+        return score if p_name in benefics else (60.0 - score)
+
+    @staticmethod
+    def _lord_balas(p_name: str, lords: Dict[str, str]) -> float:
+        score = 0.0
+        if lords.get("Year") == p_name:
+            score += 15
+        if lords.get("Month") == p_name:
+            score += 30
+        if lords.get("Day") == p_name:
+            score += 45
+        if lords.get("Hora") == p_name:
+            score += 60
+        return score
+
+    # -------------------------------------------------------------------------
+    # 4. CHESTA BALA
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _chesta_bala(p_name: str) -> float:
+        # Placeholder simplified: planets other than Sun/Moon get 30
         if p_name in ["Sun", "Moon"]:
-            # Sun/Moon don't have Chesta in same way (Ayana used instead)
-            return 0.5 # 30 Virupas avg
-            
-        if is_rx: return 1.0 # 60 Virupas (Max)
-        if speed < 0.1: return 0.25 # Slow/Stationary
-        if speed > 1.0: return 0.75 # Fast
-        return 0.5 # Average
+            return 0.0
+        return 30.0
 
-    # ---------------------------------------------------------
-    # 5. NAISARGIKA BALA (Natural Strength)
-    # ---------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # 5. NAISARGIKA
+    # -------------------------------------------------------------------------
     @staticmethod
-    def calc_naisargika_bala(p_name: str) -> float:
-        # Fixed values / 60
-        values = {
+    def _naisargika_bala(p_name: str) -> float:
+        vals = {
             "Sun": 60.0, "Moon": 51.43, "Mars": 17.14, "Mercury": 25.70,
             "Jupiter": 34.28, "Venus": 42.85, "Saturn": 8.57
         }
-        return values.get(p_name, 0) / 60.0
+        return vals.get(p_name, 0.0)
 
-    # ---------------------------------------------------------
-    # 6. DRIK BALA (Aspect Strength) - THE REAL MATH
-    # ---------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # 6. DRIK BALA
+    # -------------------------------------------------------------------------
     @staticmethod
-    def calc_drik_bala(p_name: str, target_lon: float, all_planets: Dict) -> float:
-        """
-        محاسبه نیروی نظرات (Drik) وارده بر این سیاره.
-        فرمول دقیق پاراشارا.
-        """
-        total_aspect_point = 0.0
+    def _calculate_aspect_correction(angle: float, p_name: str) -> float:
+        val = 0.0
+        if 30 <= angle <= 60:
+            val = 0.5 * (angle - 30)
+        elif 60 < angle <= 90: 
+            val = (angle - 60) + 15
+            if p_name == "Saturn":
+                val += 45
+        elif 90 < angle <= 120:
+            val = 0.5 * (120 - angle) + 30
+            if p_name == "Mars":
+                val += 15
+        elif 120 < angle <= 150:
+            val = (150 - angle)
+            if p_name == "Jupiter":
+                val += 30
+        elif 150 < angle <= 180:
+            val = 2.0 * (angle - 150)
+        elif 180 < angle <= 300:
+            val = 0.5 * (300 - angle)
+            if p_name == "Mars" and 210 <= angle <= 240:
+                val += 15
+            if p_name == "Jupiter" and 240 <= angle <= 270:
+                val += 30
+            if p_name == "Saturn" and 270 <= angle <= 300:
+                val += 45
+        return val
+
+    # -------------------------------------------------------------------------
+    # Helpers
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def get_time_lords(jd: float) -> Dict[str, str]:
+        mapping = {0: "Moon", 1: "Mars", 2: "Mercury", 3: "Jupiter", 4: "Venus", 5: "Saturn", 6: "Sun"}
+        day_lord = mapping.get(int(swe.day_of_week(jd)) % 7, "Sun")
+        # Hora lord by simple hourly cycle starting from day lord at local midnight
+        hora_seq = ["Sun", "Venus", "Mercury", "Moon", "Saturn", "Jupiter", "Mars"]
+        start_idx = hora_seq.index(day_lord) if day_lord in hora_seq else 0
+        hours_passed = (jd % 1.0) * 24.0
+        hora_idx = (start_idx + int(hours_passed)) % 7
+        hora_lord = hora_seq[hora_idx]
+        # Month/Year placeholders
+        return {"Day": day_lord, "Hora": hora_lord, "Month": day_lord, "Year": day_lord}
+
+    # -------------------------------------------------------------------------
+    # Main
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def calculate(planets: Dict[str, Any], asc_lon: float, jd: float, lat: float, lon: float) -> Dict[str, Dict]:
+        results = {}
         
-        for aspecting_name, aspecting_data in all_planets.items():
-            if aspecting_name == p_name or aspecting_name in ["Rahu", "Ketu"]: continue
-            
-            aspecting_lon = aspecting_data.longitude
-            
-            # Angle: Aspected - Aspecting
-            angle = (target_lon - aspecting_lon) % 360
-            
-            drishti = 0.0
-            
-            # Special Aspects
-            is_special = False
-            if aspecting_name == "Mars":
-                if 90 <= angle <= 120: # 4th house (approx)
-                    drishti = 45 + (angle-90)/2 # Simplified linear boost
-                    is_special = True
-                elif 210 <= angle <= 240: # 8th house
-                    drishti = 45 # Boost
-                    is_special = True
-            elif aspecting_name == "Jupiter":
-                if 120 <= angle <= 150 or 240 <= angle <= 270: # 5th and 9th
-                    drishti = 60 # Full
-                    is_special = True
-            elif aspecting_name == "Saturn":
-                if 60 <= angle <= 90 or 270 <= angle <= 300: # 3rd and 10th
-                    drishti = 45 # Boost
-                    is_special = True
-            
-            # General Parashara Formula (if not handled by special perfectly)
-            if not is_special:
-                if 30 <= angle < 60: drishti = (angle - 30) / 2.0
-                elif 60 <= angle < 90: drishti = (angle - 60) + 15
-                elif 90 <= angle < 120: drishti = (120 - angle) / 2.0 + 30
-                elif 120 <= angle < 150: drishti = (150 - angle)
-                elif 150 <= angle < 180: drishti = (angle - 150) * 2
-                elif 180 <= angle < 300: drishti = 0 # No general aspect in 7th to 12th except 7th
-                # 7th aspect (180) is implicitly peak of 150-180 curve usually
-            
-            # Drishti value is usually usually helpful (+). 
-            # But in Drik Bala: Malefics give negative strength, Benefics give positive.
-            
-            # Determine Benefic/Malefic (Natural)
-            is_benefic = aspecting_name in ["Jupiter", "Venus", "Moon", "Mercury"]
-            # Note: Mercury/Moon depend on associations, simplified here.
-            
-            strength_value = drishti / 4.0 # Drik Bala is 1/4th of Aspect Value usually
-            
-            if is_benefic:
-                total_aspect_point += strength_value
+        simple_pos = {k: p.longitude for k, p in planets.items()}
+        simple_pos["Ascendant"] = asc_lon
+        vargas_data = VargaEngine.compute_vargas(simple_pos)
+        
+        compound_rels = {}
+        for p_name in ShadbalaEngine.PLANET_NAMES_ORDER:
+            if p_name in planets:
+                comp = MaitriEngine.get_compound_relation(p_name, planets[p_name].sign, planets[p_name].sign)
+                compound_rels[p_name] = {p_name: "Own", **{p_name: comp}}
             else:
-                total_aspect_point -= strength_value
-                
-        return total_aspect_point / 60.0 # Convert to Rupa
+                compound_rels[p_name] = {}
 
-    # ---------------------------------------------------------
-    # MAIN CALCULATION
-    # ---------------------------------------------------------
-    @staticmethod
-    def calculate_shadbala(planets: Dict[str, Any], ascendant: float) -> Dict[str, Dict]:
-        result = {}
+        time_lords = ShadbalaEngine.get_time_lords(jd)
         
-        # Pre-calc Vargas for all planets
-        # Note: 'planets' dictionary contains PlanetInfo objects
-        all_vargas = {}
-        simple_lons = {n: d.longitude for n, d in planets.items()}
-        simple_lons["Ascendant"] = ascendant
-        all_vargas = VargaEngine.compute_vargas(simple_lons)
+        asc_sign = int(asc_lon / 30) + 1
         
-        # Check Day/Night (Simple approximation using Sun position relative to Asc)
-        # If Sun is in 7th to 12th house relative to Asc -> Day
-        sun_h = (int(simple_lons['Sun']/30) - int(ascendant/30)) % 12 + 1
-        is_day = (7 <= sun_h <= 12)
-        
-        for p_name, p_data in planets.items():
-            if p_name in ["Rahu", "Ketu"]: continue
+        for p_name in ShadbalaEngine.PLANET_NAMES_ORDER:
+            if p_name not in planets:
+                continue
+            p = planets[p_name]
+            p_lon = p.longitude
+            p_sign = p.sign
             
-            # 1. Sthana
-            sthana = ShadbalaEngine.calc_sthana_bala(p_name, p_data, all_vargas[p_name])
+            vargas = vargas_data.get(p_name, {})
+            rels = {}
+            for other in ShadbalaEngine.PLANET_NAMES_ORDER:
+                rels[other] = MaitriEngine.get_compound_relation(p_name, planets.get(other, p).sign if other in planets else p_sign, p_sign)
             
-            # 2. Dig
-            dig = ShadbalaEngine.calc_dig_bala(p_name, p_data.longitude, ascendant)
+            uchcha = ShadbalaEngine._uchcha_bala(p_name, p_lon)
+            sapta = ShadbalaEngine._saptavargaja_bala(p_name, vargas, rels)
+            ojayugma = ShadbalaEngine._ojayugma_bala(p_name, vargas)
+            kendra = ShadbalaEngine._kendra_bala(p_sign, asc_sign)
+            drek = 0.0
+            sthana = uchcha + sapta + ojayugma + kendra + drek
             
-            # 3. Kaala
-            kaala = ShadbalaEngine.calc_kaala_bala(p_name, is_day)
+            dig = ShadbalaEngine._dig_bala(p_name, p_lon, asc_lon)
             
-            # 4. Chesta
-            chesta = ShadbalaEngine.calc_chesta_bala(p_name, p_data.speed, p_data.is_retrograde)
+            asc_h = int(asc_lon / 30)
+            sun_h = int(planets["Sun"].longitude / 30) if "Sun" in planets else 0
+            h_diff = (sun_h - asc_h) % 12
+            is_day = (6 <= h_diff <= 11)
             
-            # 5. Naisargika
-            naisargika = ShadbalaEngine.calc_naisargika_bala(p_name)
+            natonnata = ShadbalaEngine._natonnata_bala(p_name, is_day)
+            paksha = ShadbalaEngine._paksha_bala(p_name, planets["Moon"].longitude, planets["Sun"].longitude) if "Moon" in planets and "Sun" in planets else 0.0
+            lords_strength = ShadbalaEngine._lord_balas(p_name, time_lords)
+            kaala = natonnata + paksha + lords_strength
             
-            # 6. Drik
-            drik = ShadbalaEngine.calc_drik_bala(p_name, p_data.longitude, planets)
+            chesta = ShadbalaEngine._chesta_bala(p_name)
             
-            total = sthana + dig + kaala + chesta + naisargika + drik
-            min_req = ShadbalaEngine.MIN_REQ.get(p_name, 5.0)
+            naisargika = ShadbalaEngine._naisargika_bala(p_name)
             
-            result[p_name] = {
-                "total": round(total, 2),
+            drik_score = 0.0
+            for aspecting in ShadbalaEngine.PLANET_NAMES_ORDER:
+                if aspecting == p_name or aspecting not in planets:
+                    continue
+                angle = (p_lon - planets[aspecting].longitude) % 360
+                val = ShadbalaEngine._calculate_aspect_correction(angle, aspecting)
+                is_benefic = aspecting in ["Jupiter", "Venus", "Mercury", "Moon"]
+                if is_benefic:
+                    drik_score += (val / 4.0)
+                else:
+                    drik_score -= (val / 4.0)
+            
+            total_virupas = sthana + dig + kaala + chesta + naisargika + drik_score
+            total_rupas = total_virupas / 60.0
+            
+            results[p_name] = {
+                "total_rupas": round(total_rupas, 2),
+                "is_strong": total_rupas >= ShadbalaEngine.MIN_REQ_RUPAS.get(p_name, 5.0),
                 "breakdown": {
-                    "sthana": round(sthana, 2),
-                    "dig": round(dig, 2),
-                    "kaala": round(kaala, 2),
-                    "chesta": round(chesta, 2),
-                    "naisargika": round(naisargika, 2),
-                    "drik": round(drik, 2)
-                },
-                "is_strong": total >= min_req
+                    "sthana": round(sthana, 1),
+                    "dig": round(dig, 1),
+                    "kaala": round(kaala, 1),
+                    "chesta": round(chesta, 1),
+                    "naisargika": round(naisargika, 1),
+                    "drik": round(drik_score, 1)
+                }
             }
             
-        return result
+        return results
