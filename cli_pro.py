@@ -1,10 +1,13 @@
 import sys
 import os
 import requests
+import urllib3
 import json
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 from types import SimpleNamespace
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # Silence SSL warnings
 
 # افزودن مسیر جاری برای شناسایی موتور
 sys.path.append(os.getcwd())
@@ -23,10 +26,10 @@ class Colors:
 def print_header():
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"{Colors.HEADER}==========================================")
-    print(f"🦅  PHOENIX ENGINE V13 (PRO CLI)")
+    print(f"🦅  PHOENIX ENGINE V13 (LITE CLI)")
     print(f"=========================================={Colors.ENDC}")
 
-# --- 1. GEOCODING (جستجوی شهر) ---
+# --- 1. GEOCODING ---
 def get_location():
     print(f"\n{Colors.CYAN}[1] LOCATION SETUP{Colors.ENDC}")
     while True:
@@ -34,8 +37,12 @@ def get_location():
         if not query: continue
         
         try:
+            # FIX: Added User-Agent and verify=False to bypass VPN/Proxy SSL issues
+            headers = {'User-Agent': 'Mozilla/5.0 (PhoenixEngine V13)'}
             url = f"https://geocoding-api.open-meteo.com/v1/search?name={query}&count=5&language=en&format=json"
-            res = requests.get(url, timeout=5).json()
+            
+            # Increased timeout to 10s
+            res = requests.get(url, headers=headers, timeout=10, verify=False).json()
             results = res.get("results", [])
             
             if not results:
@@ -52,7 +59,7 @@ def get_location():
         except Exception as e:
             print(f"{Colors.FAIL}   Error: {e}{Colors.ENDC}")
 
-# --- 2. DATE & TIME ---
+# --- 2. BIRTH DATA ---
 def get_datetime(tz_str):
     print(f"\n{Colors.CYAN}[2] BIRTH DATA{Colors.ENDC}")
     while True:
@@ -65,73 +72,77 @@ def get_datetime(tz_str):
         except ValueError:
             print(f"{Colors.WARNING}   ⚠️ Invalid format. Use 1990-05-21 and 14:30:00{Colors.ENDC}")
 
-# --- 3. ADVANCED CONFIGURATION ---
+# --- 3. CONFIGURATION (SIMPLIFIED) ---
 def get_config():
     print(f"\n{Colors.CYAN}[3] ASTROLOGY SETTINGS{Colors.ENDC}")
     
-    # --- AYANAMSA ---
-    print(f"\n   {Colors.BOLD}Select Ayanamsa (Zodiac System):{Colors.ENDC}")
-    print("   1. Lahiri (Chitra Paksha) [Standard Vedic]")
+    # 3.1 AYANAMSA
+    print(f"\n   {Colors.BOLD}Select Ayanamsa:{Colors.ENDC}")
+    print("   1. Lahiri (Chitra Paksha) [Default]")
     print("   2. Raman")
-    print("   3. Krishnamurti (KP)")
-    print("   4. Tropical (Western/Sayana)")
-    print("   5. Fagan-Bradley")
+    print("   3. KP (Krishnamurti)")
+    print("   4. Tropical (Western)")
     
-    ayan_map = {'1': 1, '2': 3, '3': 5, '4': 0, '5': 0} # 0 is generic/tropical fallback ID for swisseph
-    ayan_choice = input(f"   Choice [Default=1]: ").strip() or '1'
-    ayanamsa_id = ayan_map.get(ayan_choice, 1)
+    ayan_choice = input(f"   Choice [1]: ").strip() or '1'
+    ayan_map = {'1': "LAHIRI", '2': "RAMAN", '3': "KP", '4': "TROPICAL"}
+    selected_ayanamsa = ayan_map.get(ayan_choice, "LAHIRI")
 
-    # --- HOUSE SYSTEM ---
+    # 3.2 HOUSE SYSTEM
     print(f"\n   {Colors.BOLD}Select House System:{Colors.ENDC}")
-    print("   1. Whole Sign (Rasi as House) [Ancient Vedic]")
-    print("   2. Placidus [Modern/Western]")
+    print("   1. Placidus [Default]")
+    print("   2. Whole Sign (Vedic Traditional)")
     print("   3. Equal House")
     print("   4. Porphyry")
     
-    house_map = {'1': 'W', '2': 'P', '3': 'E', '4': 'O'}
-    house_choice = input(f"   Choice [Default=1]: ").strip() or '1'
-    house_sys = house_map.get(house_choice, 'W')
+    house_choice = input(f"   Choice [1]: ").strip() or '1'
+    house_map = {'1': "PLACIDUS", '2': "WHOLE_SIGN", '3': "EQUAL", '4': "PORPHYRY"}
+    selected_house = house_map.get(house_choice, "PLACIDUS")
 
-    # --- OUTPUTS (DASHAS & MORE) ---
-    print(f"\n   {Colors.BOLD}Output Options (y/n):{Colors.ENDC}")
-    inc_dosha = input("   Include Doshas (Manglik/Kalasarpa)? [y]: ").lower() != 'n'
-    inc_varga = input("   Include Vargas (D9, D60...)? [y]: ").lower() != 'n'
-    inc_shad = input("   Include Shadbala (Strength)? [n]: ").lower() == 'y' # Default No to save time
+    # 3.3 DASHA SYSTEM
+    print(f"\n   {Colors.BOLD}Select Dasha System:{Colors.ENDC}")
+    print("   1. Vimshottari [Default]")
+    print("   2. Chara (K.N. Rao)")
+    
+    dasha_choice = input(f"   Choice [1]: ").strip() or '1'
+    dasha_map = {'1': ["VIMSHOTTARI"], '2': ["CHARA_KNR"]}
+    selected_dashas = dasha_map.get(dasha_choice, ["VIMSHOTTARI"])
 
-    # ساخت آبجکت کانفیگ (دقت کن دیکشنری نیست، آبجکت است)
-    # --- OUTPUT CONFIGURATION (ALL-INCLUSIVE FIX) ---
-    # Defining ALL potential flags to satisfy strict engine checks
+    # 3.4 AUTOMATIC FULL OUTPUT
     output_conf = SimpleNamespace(
-        # User Choices
-        include_doshas=inc_dosha,
-        include_vargas=inc_varga,
-        include_shadbala=inc_shad,
-        
-        # Sub-Module Safety Flags (Must exist even if False)
-        include_avasthas=True,       # Planetary States
-        include_bhavabala=True,      # House Strength
-        include_phala=True,          # Results/Fruits (The Fix)
-        include_ishta_kashta=True,   # Ishta/Kashta Phala
-        include_yogas=True,          # Yoga Combinations
-        include_ashtakavarga=True,   # 8-Fold Strength
-        include_panchanga=True,      # 5-Limbs of Time
-        include_dasa=True,           # Dasha Systems
-        include_transit=False        # Future proofing
+        include_doshas=True,
+        include_vargas=True,
+        include_shadbala=True,
+        include_yogas=True,
+        include_ashtakavarga=True,
+        include_panchanga=True,
+        include_dasa=True,
+        include_jaimini=True,
+        include_maitri=True,
+        include_aspects=True,
+        include_avasthas=True,
+        include_bhavabala=True,
+        include_phala=True,
+        include_ishta_kashta=True,
+        include_semantics=False,
+        include_transit=False
     )
     
-    calc_conf = SimpleNamespace(
-        ayanamsa_mode=ayanamsa_id,
-        house_system=house_sys
+    return SimpleNamespace(
+        ayanamsa=selected_ayanamsa,
+        house_system=selected_house,
+        dashas=selected_dashas,
+        output=output_conf,
+        calculation=SimpleNamespace(
+            ayanamsa_mode=selected_ayanamsa,
+            house_system=selected_house
+        )
     )
-    
-    # بازگشت کانفیگ نهایی
-    return SimpleNamespace(output=output_conf, calculation=calc_conf)
 
 # --- MAIN EXECUTION ---
 def main():
     print_header()
     
-    # 1. Inputs
+    # Inputs
     city = get_location()
     dt = get_datetime(city['timezone'])
     config = get_config()
@@ -140,11 +151,6 @@ def main():
     
     try:
         from phoenix_engine.engines.birth import BirthChartEngine
-        
-        # Engine Call
-        # ما کانفیگ را به موتور پاس می‌دهیم. اگر موتور تو هنوز کانفیگ 'calculation' را
-        # پشتیبانی نمی‌کند، ممکن است نیاز باشد آن را در فایل موتور هم هندل کنی.
-        # فعلاً فرض می‌کنیم موتور پارامتر config را کامل می‌گیرد.
         
         engine = BirthChartEngine(
             dt, 
@@ -156,39 +162,35 @@ def main():
         result = engine.process()
         data = result.dict()
         
-        # --- REPORT ---
+        # --- REPORT SUMMARY ---
         print_header()
-        print(f"{Colors.HEADER}🔮 REPORT FOR: {city['name'].upper()}{Colors.ENDC}")
+        print(f"{Colors.HEADER}🔮 CHART SUMMARY: {city['name'].upper()}{Colors.ENDC}")
         print(f"   Time: {dt}")
-        print(f"   Ayanamsa ID: {config.calculation.ayanamsa_mode} | House: {config.calculation.house_system}")
-        print("-" * 40)
-        
-        # Ascendant
-        print(f"{Colors.BOLD}➤ Ascendant (Lagna):{Colors.ENDC} {data['ascendant']:.2f}°")
-        
-        # Planets Table
-        print(f"\n{Colors.BOLD}{'PLANET':<10} {'LON':<10} {'SIGN':<10} {'HOUSE':<5} {'RETRO'}{Colors.ENDC}")
+        print(f"   Settings: {config.ayanamsa} | {config.house_system} | {config.dashas[0]}")
         print("-" * 50)
-        for p, d in data['grahas'].items():
+        
+        # 1. Ascendant
+        print(f"{Colors.BOLD}➤ Ascendant:{Colors.ENDC} {data['ascendant']:.2f}°")
+        
+        # 2. Planets
+        # FIX: Changed 'grahas' to 'planets' and 'lon' to 'longitude'
+        print(f"\n{Colors.BOLD}{'PLANET':<10} {'LON':<8} {'SIGN':<10} {'HOUSE':<5} {'R'}{Colors.ENDC}")
+        for p, d in data['planets'].items():
             retro = "Rx" if d['is_retrograde'] else ""
-            print(f"{p:<10} {d['lon']:.2f}{'':<4} {d['sign']:<10} {d['house']:<5} {retro}")
-            
-        # Doshas
-        if config.output.include_doshas:
-            manglik = data.get('dosha', {}).get('manglik', {}).get('is_present')
-            color = Colors.FAIL if manglik else Colors.GREEN
-            print(f"\n{Colors.BOLD}🔥 Manglik Dosha:{Colors.ENDC} {color}{manglik}{Colors.ENDC}")
-            
-        # Save JSON
+            print(f"{p:<10} {d['longitude']:.2f}{'':<4} {d['sign']:<10} {d['house']:<5} {retro}")
+
+        # 3. Save
         filename = f"chart_{dt.strftime('%Y%m%d_%H%M%S')}.json"
-        with open(filename, 'w') as f:
-            json.dump(data, f, indent=2, default=str)
-        print(f"\n{Colors.BLUE}💾 Full JSON saved to: {filename}{Colors.ENDC}")
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, default=str, ensure_ascii=False)
+            
+        print(f"\n{Colors.BLUE}💾 Full calculations saved to:{Colors.ENDC}")
+        print(f"   {Colors.BOLD}./{filename}{Colors.ENDC}")
 
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"\n{Colors.FAIL}❌ CRITICAL ERROR: {e}{Colors.ENDC}")
+        print(f"\n{Colors.FAIL}❌ ENGINE ERROR: {e}{Colors.ENDC}")
 
 if __name__ == "__main__":
     main()

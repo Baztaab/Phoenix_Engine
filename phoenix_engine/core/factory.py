@@ -12,6 +12,7 @@ from phoenix_engine.plugins.timing import TimingPlugin
 from phoenix_engine.plugins.jaimini import JaiminiPlugin
 from phoenix_engine.plugins.doshas.kuja import KujaDoshaPlugin
 from phoenix_engine.plugins.doshas.sarpa import KalaSarpaPlugin
+from phoenix_engine.plugins.subtle import SubtleBodiesPlugin
 # Note: Matching plugins are called separately in MatchEngine
 
 class ChartFactory:
@@ -24,6 +25,7 @@ class ChartFactory:
         if chart_type == "BIRTH":
             # 1. Base Astronomy (Always First)
             pipeline.append(PlanetaryPositionsPlugin())
+            pipeline.append(SubtleBodiesPlugin())
             
             # 2. Core Vedic Calculations
             pipeline.append(VargaPlugin())

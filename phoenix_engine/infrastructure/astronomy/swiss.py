@@ -1,6 +1,7 @@
-
 import swisseph as swe
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
+from datetime import datetime
+
 
 class SwissEphemeris:
     def __init__(self, ephe_path: Optional[str] = None, sidereal_mode: int = swe.SIDM_LAHIRI):
@@ -20,15 +21,7 @@ class SwissEphemeris:
     def get_ayanamsa(self, jd_ut: float) -> float:
         return swe.get_ayanamsa_ut(jd_ut)
 
-    def calculate_all_bodies(self, jd_ut: float) -> Dict[str, Dict]:
-        "محاسبه دقیق موقعیت سیارات (Legacy Name)"
-        return self._calc(jd_ut)
-
     def calculate_planets(self, jd_ut: float) -> Dict[str, Dict]:
-        "محاسبه دقیق موقعیت سیارات (Standard Name)"
-        return self._calc(jd_ut)
-
-    def _calc(self, jd_ut: float) -> Dict[str, Dict]:
         results = {}
         flags = swe.FLG_SWIEPH | swe.FLG_SPEED | swe.FLG_SIDEREAL
         
@@ -46,7 +39,7 @@ class SwissEphemeris:
             except swe.Error:
                 pass
         
-        # محاسبه کتو
+        # Ketu
         if "Rahu" in results:
             rahu = results["Rahu"]
             ketu_long = (rahu["longitude"] + 180.0) % 360.0
@@ -63,15 +56,52 @@ class SwissEphemeris:
         cusps_trop, ascmc_trop = swe.houses_ex(jd_ut, lat, lon, system)
         ayanamsa = self.get_ayanamsa(jd_ut)
         
-        # ترفند برای دقت بالاتر: اگر بخواهیم دقیق‌تر باشیم از مدی که ست کردیم استفاده می‌کنیم
-        # اما فعلاً منطق قبلی را حفظ می‌کنیم تا چیزی نشکند
         asc_sidereal = (ascmc_trop[0] - ayanamsa) % 360.0
-        mc_sidereal = (ascmc_trop[1] - ayanamsa) % 360.0
+        # MC, ARMC etc can be added here
+        
         cusps_sidereal = [(c - ayanamsa) % 360.0 for c in cusps_trop]
         
         return {
             "ascendant": asc_sidereal,
-            "mc": mc_sidereal,
-            "ayanamsa": ayanamsa,
-            "houses": cusps_sidereal
+            "houses": cusps_sidereal,
+            "ayanamsa": ayanamsa
         }
+
+    # --- SUNRISE/SUNSET CALCULATION ---
+    def get_rise_set(self, jd_ut: float, lat: float, lon: float) -> Tuple[float, float]:
+        """
+        Returns (sunrise_jd, sunset_jd).
+        Fix: Unpacks geopos into (lon, lat, height) to match the strict 7-argument signature of this swisseph version.
+        Signature used: (tjd, body, flag, rsmi, lon, lat, height)
+        """
+        start_jd = jd_ut - 1.0
+        
+        try:
+            rise_res = swe.rise_trans(
+                start_jd, 
+                swe.SUN, 
+                swe.FLG_SWIEPH, 
+                swe.CALC_RISE | swe.BIT_DISC_CENTER, 
+                lon, 
+                lat, 
+                0.0  # Height
+            )
+            
+            set_res = swe.rise_trans(
+                start_jd, 
+                swe.SUN, 
+                swe.FLG_SWIEPH, 
+                swe.CALC_SET | swe.BIT_DISC_CENTER, 
+                lon, 
+                lat, 
+                0.0  # Height
+            )
+            
+            rise_jd = rise_res[1][0] if rise_res and len(rise_res) > 1 else 0.0
+            set_jd = set_res[1][0] if set_res and len(set_res) > 1 else 0.0
+                
+            return rise_jd, set_jd
+
+        except swe.Error as e:
+            print(f"SwissEph Error: {e}")
+            return 0.0, 0.0
