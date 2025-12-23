@@ -97,6 +97,16 @@ class SwissEphemeris:
         
         return rise_jd, set_jd
 
+    def get_ascendant(self, jd_ut: float, lat: float, lon: float) -> float:
+        """
+        Calculates just the Ascendant for a specific time.
+        Used for Gulika/Mandi longitude calculation.
+        """
+        cusps, ascmc = swe.houses_ex(jd_ut, lat, lon, b'P')
+        ayanamsa = self.get_ayanamsa(jd_ut)
+        asc_sidereal = (ascmc[0] - ayanamsa) % 360.0
+        return asc_sidereal
+
 
 class SwissEphemerisEngine:
     """
