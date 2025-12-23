@@ -24,8 +24,11 @@ class JaiminiIndicatorsPlugin(IChartPlugin):
             for name, p in ctx.planets.items()
         }
 
+        # Allow configurable 7/8 Karaka mode (default 7)
+        use_8 = getattr(ctx.config, "use_8_karakas", False)
+
         # 1. Karakas
-        karakas = KarakaEngine.calculate_chara_karakas(adapted_planets, use_8_karakas=False)
+        karakas = KarakaEngine.calculate_chara_karakas(adapted_planets, use_8_karakas=use_8)
         ctx.analysis['jaimini']['karakas'] = karakas
 
         # 2. Arudhas

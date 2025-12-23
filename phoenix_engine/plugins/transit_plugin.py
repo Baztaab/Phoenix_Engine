@@ -14,10 +14,14 @@ class TransitAnalysisPlugin(IChartPlugin):
             ctx.analysis['transits'] = {}
 
         # 1. Fetch SAV
+        is_mock_sav = False
         sav_scores = [25] * 12
         if 'ashtakavarga' in ctx.analysis and 'sav' in ctx.analysis['ashtakavarga']:
             sav_list = ctx.analysis['ashtakavarga']['sav']
             sav_scores = [item['score'] for item in sav_list]
+        else:
+            is_mock_sav = True
+            print("   >>> [Kai/Warning]: Ashtakavarga data missing. Using mock SAV (25).")
 
         # 2. Build Context (karakas, active dasha lords)
         context = {
@@ -29,10 +33,10 @@ class TransitAnalysisPlugin(IChartPlugin):
         
         # Temporal fallback: use prediction_start_date if provided, else now
         target_dt = getattr(ctx, 'prediction_start_date', datetime.now())
-        target_date = target_dt.strftime("%Y-%m-%d")
+        target_date_str = target_dt.strftime("%Y-%m-%d")
         if 'dashas' in ctx.analysis and 'vimshottari' in ctx.analysis['dashas']:
             for d in ctx.analysis['dashas']['vimshottari']:
-                if d['start'] <= target_date <= d['end']:
+                if d['start'] <= target_date_str <= d['end']:
                     context["active_dasha_lords"].append(d['lord'])
                     break
         
@@ -65,9 +69,12 @@ class TransitAnalysisPlugin(IChartPlugin):
         # 6. Output
         ctx.analysis['transits'] = {
             "meta": {
-                "start_date": target_date,
+                "start_date": target_date_str,
                 "duration": "30 Days",
-                "active_dasha": context["active_dasha_lords"]
+                "active_dasha": context["active_dasha_lords"],
+                "data_integrity": {
+                    "is_sav_mocked": is_mock_sav
+                }
             },
             "events": ingress_events,
             "forecast": smart_data
