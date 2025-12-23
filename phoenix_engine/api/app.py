@@ -1,35 +1,53 @@
-
-from phoenix_engine.domain.match import MatchRequest, MatchResult
-from phoenix_engine.engines.match import MatchingEngine
-
 from fastapi import FastAPI, HTTPException
 from datetime import datetime
-import pytz
 import uvicorn
+
+# Import Core Engines & Models
 from phoenix_engine.engines.birth import BirthChartEngine as VedicChart
+from phoenix_engine.engines.match import MatchingEngine
 from phoenix_engine.core.models import ChartRequest, ChartOutput
+from phoenix_engine.domain.match import MatchRequest, MatchResult
 from phoenix_engine.infrastructure.time.manager import localize_strict, AmbiguousTimeError, NonExistentTimeError
 
 app = FastAPI(title="Phoenix Engine V13 (Cosmic)", version="13.0.0")
 
+# --- [Kai/Fix]: Added Health Check Endpoint ---
+@app.get("/")
+def read_root():
+    """
+    System Status Check.
+    Used by 'test_smoke.py' to verify API availability.
+    """
+    return {
+        "status": "online",
+        "engine": "Phoenix Engine V13 (Cosmic)",
+        "version": "13.0.0"
+    }
+# ----------------------------------------------
+
+
 @app.post("/calculate", response_model=ChartOutput)
 def calculate_chart(req: ChartRequest):
     try:
-        # 1. Standardize Time
         bd = req.birth_data
-        try:
-            dt_naive = datetime(bd.year, bd.month, bd.day, bd.hour, bd.minute)
-            dt_aware = localize_strict(dt_naive, bd.timezone)
-        except (ValueError, AmbiguousTimeError, NonExistentTimeError) as e:
-            raise HTTPException(status_code=400, detail=f"Time Error: {str(e)}")
 
-        # 2. Process
-        chart = VedicChart(dt_aware, bd.lat, bd.lon, config=req.config)
-        result = chart.process()
-        
-        if req.name:
-            result.meta["client_name"] = req.name
-            
+        # Use orchestrator to ensure full UTC/Upagraha/Panchanga logic
+        from phoenix_engine.core.orchestrator import ChartOrchestrator
+        orchestrator = ChartOrchestrator(req.config)
+
+        result = orchestrator.run_birth_chart(
+            name=req.name or "User",
+            year=bd.year,
+            month=bd.month,
+            day=bd.day,
+            hour=bd.hour,
+            minute=bd.minute,
+            second=bd.second if hasattr(bd, 'second') else 0,
+            lat=bd.lat,
+            lon=bd.lon,
+            tz=bd.timezone  # Orchestrator will resolve via TimezoneFinder
+        )
+
         return result
 
     except Exception as e:
