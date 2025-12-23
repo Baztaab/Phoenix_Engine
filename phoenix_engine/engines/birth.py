@@ -1,76 +1,123 @@
+import swisseph as swe
 
-from phoenix_engine.core.context import ChartContext
-from phoenix_engine.core.factory import ChartFactory
-from phoenix_engine.domain.input import BirthData
-from phoenix_engine.domain.config import ChartConfig
-from phoenix_engine.domain.output import ChartOutput
-from phoenix_engine.infrastructure.time.manager import TimeEngine
-from datetime import datetime
+from phoenix_engine.core.config import ChartConfig
+
 
 class BirthChartEngine:
-    def __init__(self, dt_aware: datetime, lat: float, lon: float, config: ChartConfig = None):
-        self.dt = dt_aware
-        self.lat = lat
-        self.lon = lon
-        self.config = config if config else ChartConfig()
-        
-        # Prepare BirthData for Context
-        self.birth_data = BirthData(
-            year=dt_aware.year, month=dt_aware.month, day=dt_aware.day,
-            hour=dt_aware.hour, minute=dt_aware.minute,
-            lat=lat, lon=lon, timezone=str(dt_aware.tzinfo)
-        )
+    """
+    Pure calculation engine for natal charts.
+    Computes planetary positions and houses without invoking any plugins.
+    """
 
-    def process(self) -> ChartOutput:
-        # 1. Initialize Context
-        ctx = ChartContext(self.birth_data, self.config)
-        
-        # 2. Manual Astronomy Injection (Legacy bridge)
-        # Since PlanetaryPositionsPlugin might mock data in current state, 
-        # we calculate JD here to be safe or ensure plugin does it right.
-        # For V13 Alpha, let's keep using TimeEngine here to seed the context.
-        time_engine = TimeEngine()
-        ctx.jd_ut = time_engine.get_julian_day(self.dt)
-        
-        # 3. Get Pipeline
-        pipeline = ChartFactory.create_pipeline("BIRTH", self.config)
-        
-        # 4. Execute Pipeline
-        for plugin in pipeline:
-            # print(f"Running {plugin.name}...") 
-            plugin.execute(ctx)
-            
-        # 5. Map Context Analysis to ChartOutput
-        # This mapping converts the dynamic dict back to the strict Pydantic model
-        analysis = ctx.analysis
-        
-        return ChartOutput(
-            meta={
-                "datetime": self.dt.isoformat(),
-                "location": {"lat": self.lat, "lon": self.lon},
-                "algorithm": "Phoenix V13 Cosmic (Plugin Architecture)"
+    def __init__(self, config: ChartConfig):
+        self.config = config
+
+    def calculate_natal_chart(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        hour: int,
+        minute: int,
+        second: int,
+        lat: float,
+        lon: float,
+        name: str = "User",
+    ):
+        # 1) Julian Day
+        hour_decimal = hour + (minute / 60.0) + (second / 3600.0)
+        jd = swe.julday(year, month, day, hour_decimal)
+
+        # 2) Sidereal mode (default Lahiri)
+        swe.set_sid_mode(swe.SIDM_LAHIRI)
+
+        # 3) Planets
+        planets = {}
+        planet_ids = {
+            "Sun": swe.SUN,
+            "Moon": swe.MOON,
+            "Mars": swe.MARS,
+            "Mercury": swe.MERCURY,
+            "Jupiter": swe.JUPITER,
+            "Venus": swe.VENUS,
+            "Saturn": swe.SATURN,
+            "Rahu": swe.MEAN_NODE,
+        }
+
+        for p_name, p_id in planet_ids.items():
+            flags = swe.FLG_SWIEPH | swe.FLG_SIDEREAL | swe.FLG_SPEED
+            res = swe.calc_ut(jd, p_id, flags)
+            lon_val = res[0][0]
+            speed_val = res[0][3]
+
+            planets[p_name] = {
+                "name": p_name,
+                "longitude": lon_val,
+                "speed": speed_val,
+                "is_retrograde": speed_val < 0,
+                "coordinates": {
+                    "sign_id": int(lon_val / 30) + 1,
+                    "degree_in_sign": lon_val % 30,
+                },
+                "sign_name": self._get_sign_name(int(lon_val / 30) + 1),
+            }
+
+            if p_name == "Rahu":
+                k_lon = (lon_val + 180) % 360
+                planets["Ketu"] = {
+                    "name": "Ketu",
+                    "longitude": k_lon,
+                    "speed": speed_val,
+                    "is_retrograde": True,
+                    "coordinates": {"sign_id": int(k_lon / 30) + 1, "degree_in_sign": k_lon % 30},
+                    "sign_name": self._get_sign_name(int(k_lon / 30) + 1),
+                }
+
+        # 4) Houses / Ascendant (Placidus by default)
+        h_sys = b"P"
+        cusps, ascmc = swe.houses(jd, lat, lon, h_sys)
+        asc_lon = ascmc[0]
+
+        houses_data = {}
+        for i, cusp in enumerate(cusps):
+            sign_id = int(cusp / 30) + 1
+            houses_data[i + 1] = {
+                "longitude": cusp,
+                "sign_id": sign_id,
+                "sign_name": self._get_sign_name(sign_id),
+            }
+
+        return {
+            "meta": {
+                "jd": jd,
+                "birth_date": f"{year}-{month:02d}-{day:02d}",
+                "birth_time": f"{hour:02d}:{minute:02d}:{second:02d}",
+                "location": {"lat": lat, "lon": lon},
+                "name": name,
             },
-            ascendant=ctx.ascendant,
-            ayanamsha=analysis.get('ayanamsha', 0.0), # Need to ensure astro plugin sets this
-            houses=ctx.houses,
-            planets=ctx.planets,
-            
-            vargas=analysis.get('vargas'),
-            shadbala=analysis.get('shadbala'),
-            ashtakavarga=analysis.get('ashtakavarga'),
-            jaimini=analysis.get('jaimini'),
-            yogas=analysis.get('yogas'),
-            parasari_yogas=analysis.get('parasari_yogas'),
-            panchanga=analysis.get('panchanga'),
-            dashas=analysis.get('dashas'),
-            current_dasha_chain=analysis.get('current_dasha_chain'),
-            transits=analysis.get('transits'),
-            
-            # Nested fields
-            avasthas=analysis.get('avasthas'),
-            bhava_bala=analysis.get('bhava_bala'),
-            phala=analysis.get('phala'),
-            
-            # Dosha (Construct Model if needed, or pass dict if compatible)
-            dosha=analysis.get('dosha')
-        )
+            "planets": planets,
+            "houses": houses_data,
+            "ascendant": {
+                "longitude": asc_lon,
+                "sign_id": int(asc_lon / 30) + 1,
+                "sign_name": self._get_sign_name(int(asc_lon / 30) + 1),
+            },
+        }
+
+    def _get_sign_name(self, sign_id: int) -> str:
+        signs = [
+            "Aries",
+            "Taurus",
+            "Gemini",
+            "Cancer",
+            "Leo",
+            "Virgo",
+            "Libra",
+            "Scorpio",
+            "Sagittarius",
+            "Capricorn",
+            "Aquarius",
+            "Pisces",
+        ]
+        return signs[sign_id - 1] if 1 <= sign_id <= 12 else "Unknown"
+

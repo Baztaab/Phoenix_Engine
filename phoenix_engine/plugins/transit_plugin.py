@@ -58,5 +58,5 @@ class TransitAnalysisPlugin(IChartPlugin):
                 "active_dasha": context["active_dasha_lords"]
             },
             "events": ingress_events,
-            "forecast": smart_data["daily_timeline"]
+            "forecast": smart_data
         }

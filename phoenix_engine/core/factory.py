@@ -1,50 +1,54 @@
+from phoenix_engine.core.config import ChartConfig
 
-from typing import List
-from phoenix_engine.domain.config import ChartConfig
-from phoenix_engine.plugins.base import IChartPlugin
-
-# Import ALL Plugins
-from phoenix_engine.plugins.astronomy.positions import PlanetaryPositionsPlugin
-from phoenix_engine.plugins.vargas import VargaPlugin
-from phoenix_engine.plugins.strength import StrengthPlugin
-from phoenix_engine.plugins.prediction import PredictionPlugin
-from phoenix_engine.plugins.timing import TimingPlugin
-from phoenix_engine.plugins.doshas.kuja import KujaDoshaPlugin
-from phoenix_engine.plugins.doshas.sarpa import KalaSarpaPlugin
-from phoenix_engine.plugins.subtle import SubtleBodiesPlugin
-from phoenix_engine.plugins.advanced_dashas import AdvancedDashasPlugin
-from phoenix_engine.plugins.jaimini_plugin import JaiminiIndicatorsPlugin
-from phoenix_engine.plugins.parasari_yogas_plugin import ParasariYogasPlugin
-from phoenix_engine.plugins.ashtakavarga_plugin import AshtakavargaPlugin
-from phoenix_engine.plugins.transit_plugin import TransitAnalysisPlugin
-# Note: Matching plugins are called separately in MatchEngine
 
 class ChartFactory:
-    "مغز متفکر خط تولید"
-    
+    """
+    Central pipeline factory.
+    """
+
     @staticmethod
-    def create_pipeline(chart_type: str, config: ChartConfig) -> List[IChartPlugin]:
+    def create_chart(dt, lat, lon):
+        """
+        Helper hook for TajakaEngine. Implementation can be added when a lightweight
+        chart generator is available.
+        """
+        from phoenix_engine.engines.birth import BirthChartEngine
+
+        cfg = ChartConfig()
+        engine = BirthChartEngine(cfg)
+        return engine.calculate_natal_chart(
+            year=dt.year,
+            month=dt.month,
+            day=dt.day,
+            hour=dt.hour,
+            minute=dt.minute,
+            second=getattr(dt, "second", 0),
+            lat=lat,
+            lon=lon,
+            name="AutoChart",
+        )
+
+    @staticmethod
+    def create_pipeline(pipeline_type: str, config: ChartConfig):
+        """
+        Build processing pipeline based on type.
+        Imports are inside to avoid import cycles.
+        """
+        from phoenix_engine.plugins.birth_plugin import BirthChartPlugin
+        from phoenix_engine.plugins.transit_plugin import TransitAnalysisPlugin
+        from phoenix_engine.plugins.tajaka_plugin import TajakaPlugin
+
         pipeline = []
-        
-        if chart_type == "BIRTH":
-            # 1. Base Astronomy (Always First)
-            pipeline.append(PlanetaryPositionsPlugin())
-            pipeline.append(SubtleBodiesPlugin())
-            pipeline.append(JaiminiIndicatorsPlugin())
-            pipeline.append(ParasariYogasPlugin())
-            
-            # 2. Core Vedic Calculations
-            pipeline.append(VargaPlugin())
-            pipeline.append(StrengthPlugin())
-            pipeline.append(AshtakavargaPlugin())
-            pipeline.append(TransitAnalysisPlugin())
-            pipeline.append(PredictionPlugin())
-            pipeline.append(TimingPlugin())
-            pipeline.append(AdvancedDashasPlugin())
-            
-            # 3. Optional Features
-            if config.output.include_doshas:
-                pipeline.append(KujaDoshaPlugin())
-                pipeline.append(KalaSarpaPlugin())
-                
+
+        if pipeline_type == "BIRTH":
+            pipeline.append(BirthChartPlugin(config))
+
+        elif pipeline_type == "TRANSIT":
+            pipeline.append(BirthChartPlugin(config))
+            pipeline.append(TransitAnalysisPlugin(config))
+
+        elif pipeline_type == "ANNUAL":
+            pipeline.append(BirthChartPlugin(config))
+            pipeline.append(TajakaPlugin(config))
+
         return pipeline

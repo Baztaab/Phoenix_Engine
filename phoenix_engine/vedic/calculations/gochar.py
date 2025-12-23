@@ -4,78 +4,40 @@ from phoenix_engine.vedic.const import SUN, MOON, MARS, MERCURY, JUPITER, VENUS,
 
 class GocharEngine:
     """
-    موتور تحلیل ترانزیت هوشمند (Smart Vedic Transit Engine).
-    اطلاعات را در 5 لایه (هویت، قدرت، مکان، اتصال، کیفیت) مپ می‌کند.
+    موتور ترانزیت داده‌محور (Data-Driven Smart Gochar).
+    شامل محاسبات لایه‌ای و یوگاهای ترانزیتی.
     """
     
     KAKSHYA_LORDS = ["Saturn", "Jupiter", "Mars", "Sun", "Venus", "Mercury", "Moon", "Ascendant"]
     
     HOUSE_TOPICS = {
-        1: "Self/Health", 2: "Wealth/Family", 3: "Effort/Communication", 4: "Home/Mother",
-        5: "Creativity/Children", 6: "Service/Enemies", 7: "Marriage/Partners", 8: "Transformation/Crisis",
-        9: "Dharma/Luck", 10: "Career/Status", 11: "Gains/Network", 12: "Loss/Spirituality"
-    }
-
-    ASPECT_RULES = {
-        "Sun": [7], "Moon": [7], "Mercury": [7], "Venus": [7],
-        "Mars": [4, 7, 8], "Jupiter": [5, 7, 9], "Saturn": [3, 7, 10],
-        "Rahu": [5, 7, 9], "Ketu": [5, 7, 9]
+        1: "Self/Health", 2: "Wealth/Family", 3: "Effort/Courage", 4: "Home/Peace",
+        5: "Education/Progeny", 6: "Enemies/Debts", 7: "Spouse/Partnership", 8: "Longevity/Changes",
+        9: "Luck/Dharma", 10: "Karma/Career", 11: "Gains/Income", 12: "Loss/Expenses"
     }
 
     @staticmethod
-    def _get_kakshya_lord(degree: float) -> str:
-        idx = int(degree / 3.75)
-        return GocharEngine.KAKSHYA_LORDS[min(idx, 7)]
-
-    @staticmethod
-    def _get_functional_nature(planet_name: str, asc_sign: int) -> str:
-        rulers = {1:"Mars", 2:"Venus", 3:"Mercury", 4:"Moon", 5:"Sun", 6:"Mercury", 
-                  7:"Venus", 8:"Mars", 9:"Jupiter", 10:"Saturn", 11:"Saturn", 12:"Jupiter"}
+    def _check_transit_yogas(daily_planets: Dict[str, Dict[str, Any]]) -> List[str]:
+        yogas = []
+        signs = {p: data['sign'] for p, data in daily_planets.items() if p in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn']}
         
-        owned_houses = []
-        for h in range(1, 13):
-            sign = (asc_sign + h - 2) % 12 + 1
-            if rulers.get(sign) == planet_name:
-                owned_houses.append(h)
+        if 'Moon' in signs and 'Jupiter' in signs:
+            dist = (signs['Jupiter'] - signs['Moon']) % 12
+            if dist in [0, 3, 6, 9]:
+                yogas.append("Gaja Kesari (Transit): Reputation & Success")
+
+        if 'Sun' in signs and 'Mercury' in signs and signs['Sun'] == signs['Mercury']:
+            yogas.append("Budhaditya (Transit): Intelligence & Communication")
                 
-        if not owned_houses:
-            return "Neutral"
-        
-        is_trine_lord = any(h in [1, 5, 9] for h in owned_houses)
-        is_dusthana_lord = any(h in [6, 8, 12] for h in owned_houses)
-        
-        if is_trine_lord:
-            return "Functional Benefic"
-        if is_dusthana_lord and not is_trine_lord:
-            return "Functional Malefic"
-        return "Neutral/Mixed"
+        if 'Moon' in signs and 'Mars' in signs and signs['Moon'] == signs['Mars']:
+            yogas.append("Chandra Mangala (Transit): Wealth & Earnings")
 
-    @staticmethod
-    def _calculate_tara_bala(transit_nak: int, moon_nak: int) -> Dict[str, Any]:
-        if not moon_nak:
-            return {"score": 0, "status": "Unknown"}
-        
-        dist = (transit_nak - moon_nak)
-        if dist < 0:
-            dist += 27
-        tara_num = (dist % 9) + 1
-        
-        tara_map = {
-            1: "Janma (Birth) - Medium",
-            2: "Sampat (Wealth) - Good",
-            3: "Vipat (Danger) - Bad",
-            4: "Kshema (Well-being) - Good",
-            5: "Pratyak (Obstacles) - Bad",
-            6: "Sadhana (Achievement) - Very Good",
-            7: "Naidhana (Destruction) - Very Bad",
-            8: "Mitra (Friend) - Good",
-            9: "Parama Mitra (Best Friend) - Excellent"
-        }
-        
-        desc = tara_map.get(tara_num, "Neutral")
-        score = 1 if tara_num in [2,4,6,8,9] else -1 if tara_num in [3,5,7] else 0
-        
-        return {"type": tara_num, "desc": desc, "score": score}
+        if 'Jupiter' in signs and 'Mars' in signs:
+            dist = (signs['Mars'] - signs['Jupiter']) % 12
+            if dist in [0, 6]:
+                yogas.append("Guru Mangala (Transit): High Energy & Leadership")
+
+        return yogas
 
     @staticmethod
     def analyze_smart_series(
@@ -86,101 +48,59 @@ class GocharEngine:
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
         
-        analyzed_timeline = []
-        
-        karakas = context.get('karakas', {})
+        timeline = []
         active_lords = context.get('active_dasha_lords', [])
-        planet_to_karaka = {v: k for k, v in karakas.items()}
-        
-        natal_moon = natal_chart.get("Moon")
-        moon_nak = int(natal_moon.nakshatra_id) if hasattr(natal_moon, 'nakshatra_id') else 0
-        moon_sign = natal_moon.sign
+        natal_moon_sign = natal_chart["Moon"].sign
 
         for day_data in transit_series:
             date = day_data["date"]
-            daily_insights = {"date": date, "global_score": 0, "planets": {}}
-            daily_total_score = 0
+            active_yogas = GocharEngine._check_transit_yogas(day_data["planets"])
+            
+            day_snapshot = {
+                "date": date,
+                "timestamp": day_data.get("timestamp"),
+                "global_yogas": active_yogas,
+                "planets": {}
+            }
             
             for p_name, t_info in day_data["planets"].items():
                 if p_name in ["Rahu", "Ketu"]:
                     continue
                 
-                func_nature = GocharEngine._get_functional_nature(p_name, asc_sign)
-                karaka_role = planet_to_karaka.get(p_name, "")
-                is_dasha_lord = p_name in active_lords
+                current_sign = t_info["sign"]
+                h_lagna = (current_sign - asc_sign + 12) % 12 + 1
+                h_moon = (current_sign - natal_moon_sign + 12) % 12 + 1
                 
-                sign_idx = t_info["sign"] - 1
-                sav = sav_data[sign_idx]
-                kakshya_lord = GocharEngine._get_kakshya_lord(t_info["degree"])
+                sav_score = sav_data[current_sign - 1]
+                kakshya_idx = int(t_info["degree"] / 3.75)
+                kakshya_lord = GocharEngine.KAKSHYA_LORDS[min(kakshya_idx, 7)]
                 
-                h_from_lagna = (t_info["sign"] - asc_sign + 12) % 12 + 1 if asc_sign else 0
-                h_from_moon = (t_info["sign"] - moon_sign + 12) % 12 + 1
-                
-                t_nak = t_info["nakshatra"]["id"]
-                tara_info = GocharEngine._calculate_tara_bala(t_nak, moon_nak)
-                
-                aspects_to_houses = []
-                if p_name in GocharEngine.ASPECT_RULES:
-                    for aspect_dist in GocharEngine.ASPECT_RULES[p_name]:
-                        target_h = (h_from_lagna + aspect_dist - 1) % 12 + 1
-                        topic = GocharEngine.HOUSE_TOPICS.get(target_h, "")
-                        aspects_to_houses.append(f"H{target_h} ({topic})")
-                
-                base_score = 0
-                if sav >= 30:
-                    base_score += 2
-                elif sav < 20:
-                    base_score -= 1
-                
-                if tara_info["score"] > 0:
-                    base_score += 1
-                elif tara_info["score"] < 0:
-                    base_score -= 1
-                
-                final_score = base_score
-                if is_dasha_lord:
-                    final_score *= 1.5
-                
-                status_text = "Neutral"
-                if final_score >= 3:
-                    status_text = "Excellent"
-                elif final_score >= 1:
-                    status_text = "Good"
-                elif final_score < 0:
-                    status_text = "Challenging"
-                
-                planet_obj = {
-                    "position": {
-                        "sign": t_info["sign"],
-                        "house_lagna": h_from_lagna,
-                        "house_moon": h_from_moon,
-                        "nakshatra": t_nak,
-                        "is_retro": t_info["is_retro"]
+                planet_detail = {
+                    "coordinates": {
+                        "sign_id": current_sign,
+                        "longitude": t_info["longitude"],
+                        "degree_in_sign": t_info["degree"],
+                        "speed": t_info["speed"],
+                        "is_retrograde": t_info["is_retro"]
                     },
-                    "identity": {
-                        "functional": func_nature,
-                        "chara_karaka": karaka_role,
-                        "is_dasha_lord": is_dasha_lord
+                    "nakshatra": t_info["nakshatra"],
+                    "houses": {
+                        "from_lagna": h_lagna,
+                        "topic": GocharEngine.HOUSE_TOPICS.get(h_lagna, "General"),
+                        "from_moon": h_moon
                     },
                     "strength": {
-                        "sav_points": sav,
+                        "sav_points": sav_score,
                         "kakshya_lord": kakshya_lord
                     },
-                    "quality": {
-                        "tara_bala": tara_info.get("desc", "Unknown"),
-                        "status_score": round(final_score, 1)
-                    },
-                    "network": {
-                        "current_domain": GocharEngine.HOUSE_TOPICS.get(h_from_lagna, ""),
-                        "aspects_hitting": aspects_to_houses
-                    },
-                    "summary": f"{p_name} ({func_nature}) in {GocharEngine.HOUSE_TOPICS.get(h_from_lagna,'')} aspecting {aspects_to_houses}"
+                    "context": {
+                        "is_dasha_lord": p_name in active_lords,
+                        "functional_nature": "Benefic" if h_lagna in [1,5,9] else "Neutral"
+                    }
                 }
                 
-                daily_insights["planets"][p_name] = planet_obj
-                daily_total_score += final_score
+                day_snapshot["planets"][p_name] = planet_detail
             
-            daily_insights["global_score"] = round(daily_total_score, 1)
-            analyzed_timeline.append(daily_insights)
+            timeline.append(day_snapshot)
             
-        return {"daily_timeline": analyzed_timeline}
+        return {"chronological_timeline": timeline}
