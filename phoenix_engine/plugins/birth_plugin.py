@@ -1,55 +1,69 @@
-from datetime import datetime
-import pytz
-
+from phoenix_engine.plugins.base import IChartPlugin
 from phoenix_engine.core.context import ChartContext
-from phoenix_engine.engines.birth import BirthChartEngine
+from phoenix_engine.infrastructure.astronomy.swiss import SwissEphemerisEngine
+from phoenix_engine.domain.celestial import PlanetPosition
 
 
-class BirthChartPlugin:
+class BirthChartPlugin(IChartPlugin):
     """
-    Birth chart analysis plugin.
-    Runs BirthChartEngine and stores results back into the context.
+    The Genesis Plugin.
+    Calculates planetary positions and house cusps based on strict UTC time.
+    Populates the ChartContext with high-fidelity celestial objects.
     """
 
     def __init__(self, config):
         self.config = config
-        self.name = "Birth Chart Analysis Plugin"
 
-    def execute(self, context: ChartContext):
+    @property
+    def name(self):
+        return "Birth Chart Calculator"
+
+    def execute(self, ctx: ChartContext):
         print(f"   ... Executing {self.name} ...")
 
-        # Gather inputs (support both ChartContext and custom contexts)
-        year = getattr(context, "year", getattr(context.input, "year", 0))
-        month = getattr(context, "month", getattr(context.input, "month", 0))
-        day = getattr(context, "day", getattr(context.input, "day", 0))
-        hour = getattr(context, "hour", getattr(context.input, "hour", 0))
-        minute = getattr(context, "minute", getattr(context.input, "minute", 0))
-        second = getattr(context, "second", 0)
-        lat = getattr(context, "latitude", getattr(context.input, "lat", 0.0))
-        lon = getattr(context, "longitude", getattr(context.input, "lon", 0.0))
-        name = getattr(context, "name", "User")
+        if not getattr(ctx, "jd_ut", 0):
+            raise ValueError("ChartContext.jd_ut is missing. TimeEngine must set it before BirthChartPlugin.")
 
-        # Run pure calculation engine
-        engine = BirthChartEngine(self.config)
-        report = engine.calculate_natal_chart(
-            year=year,
-            month=month,
-            day=day,
-            hour=hour,
-            minute=minute,
-            second=second,
-            lat=lat,
-            lon=lon,
-            name=name,
+        astro_engine = SwissEphemerisEngine(ctx.config)
+
+        # Calculate Houses & Ascendant first (needed for planet house assignment)
+        houses_data = astro_engine.calculate_houses(
+            jd_ut=ctx.jd_ut,
+            lat=ctx.birth_data.lat,
+            lon=ctx.birth_data.lon,
+            system=getattr(ctx.config, "house_system", "P"),
+        )
+        ascendant = houses_data["ascendant"]
+        asc_sign = int(ascendant / 30) + 1
+
+        # Calculate Planets (Swiss Ephemeris, sidereal)
+        raw_planets = astro_engine.calculate_planets(
+            jd_ut=ctx.jd_ut,
+            lat=ctx.birth_data.lat,
+            lon=ctx.birth_data.lon,
+            asc_sign=asc_sign,
         )
 
-        # Persist JD if available
-        context.jd_ut = report.get("meta", {}).get("jd", getattr(context, "jd_ut", 0.0))
+        planet_objects = []
+        for p_data in raw_planets:
+            planet_objects.append(PlanetPosition(**p_data))
 
-        # Store core fields for downstream plugins
-        context.ascendant = report.get("ascendant", getattr(context, "ascendant", 0.0))
-        context.houses = report.get("houses", getattr(context, "houses", []))
-        context.planets = report.get("planets", getattr(context, "planets", {}))
+        # Inject Planets & Houses into Context
+        ctx.set_planets(planet_objects)
+        ctx.set_houses(cusps=houses_data["cusps"], ascendant=ascendant)
 
-        # Merge analysis/results
-        context.analysis.update(report)
+        # Structured houses for downstream consumers (e.g., TajakaEngine)
+        houses_struct = houses_data.get("houses_struct", {})
+        asc_struct = {
+            "longitude": ascendant,
+            "sign_id": asc_sign,
+            "sign_name": astro_engine.sign_name(asc_sign),
+        }
+
+        # Analysis payload (JSON-friendly)
+        ctx.analysis["planets"] = {p.name: p.model_dump() for p in planet_objects}
+        ctx.analysis["houses"] = houses_struct
+        ctx.analysis["ascendant"] = asc_struct
+        ctx.analysis.setdefault("meta", {})["ayanamsa"] = houses_data.get("ayanamsa")
+
+        print(f"   >>> [Kai/Audit]: Birth Chart Calculated. {len(planet_objects)} bodies injected.")

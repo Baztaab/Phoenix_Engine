@@ -1,157 +1,169 @@
-
-from datetime import datetime, timedelta
 from typing import Dict, List, Any
-import copy
+
+import swisseph as swe
+
+from phoenix_engine.core.context import ChartContext
+
 
 class DashaEngine:
     """
-    محاسبه پیشرفته ویمشوتاری داشا (تا ۳ سطح: Maha, Antar, Pratyantar)
+    High-Precision Vimshottari Dasha Engine.
+    Standard: Matches Jagannatha Hora (JHora) logic strictly.
+
+    Refactored by Kai to use Julian Day (JD) arithmetic exclusively.
+    Eliminates Leap Year drift errors by bypassing calendar logic during calculation.
     """
-    
+
     DASHA_LORDS = ["Ketu", "Venus", "Sun", "Moon", "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"]
     DASHA_YEARS = {
-        "Ketu": 7, "Venus": 20, "Sun": 6, "Moon": 10, "Mars": 7, 
-        "Rahu": 18, "Jupiter": 16, "Saturn": 19, "Mercury": 17
+        "Ketu": 7,
+        "Venus": 20,
+        "Sun": 6,
+        "Moon": 10,
+        "Mars": 7,
+        "Rahu": 18,
+        "Jupiter": 16,
+        "Saturn": 19,
+        "Mercury": 17,
     }
-    TOTAL_CYCLE = 120
+
+    # JHora Constants Reference:
+    # sidereal_year = 365.256364 (Default in JHora)
+    # savana_year = 360
+    # average_gregorian_year = 365.2425
+    #
+    # We use Sidereal Year by default to match JHora's primary logic unless configured otherwise.
+    SIDEREAL_YEAR = 365.256364
+    SAVANA_YEAR = 360.0
+    GREGORIAN_YEAR = 365.2425
+
+    def __init__(self, config: Any = None):
+        self.config = config
+        # Default to JHora Standard (Sidereal) if not specified
+        self.year_length = self.SIDEREAL_YEAR
+
+        # Future-proofing: Allow config to override year type (Savana/Gregorian)
+        if config and hasattr(config, "dasha_year_type"):
+            if config.dasha_year_type == "SAVANA":
+                self.year_length = self.SAVANA_YEAR
+            elif config.dasha_year_type == "GREGORIAN":
+                self.year_length = self.GREGORIAN_YEAR
 
     @staticmethod
-    def _get_sub_periods(main_lord: str, start_date: datetime, main_duration: float, level: int) -> List[Dict]:
-        """تابع بازگشتی برای تولید زیر-دوره‌ها"""
-        if level > 3: 
+    def _jd_to_date_str(jd: float) -> str:
+        """Converts Julian Day to YYYY-MM-DD string safely."""
+        y, m, d, _ = swe.revjul(jd)
+        return f"{y:04d}-{m:02d}-{int(d):02d}"
+
+    def _get_sub_periods_jd(
+        self, main_lord: str, start_jd: float, main_duration_years: float, level: int
+    ) -> List[Dict]:
+        """Recursive JD-based sub-period calculator."""
+        if level > 3:
             return []
 
-        sub_periods = []
-        current_date = start_date
-        
-        start_idx = DashaEngine.DASHA_LORDS.index(main_lord)
-        ordered_lords = DashaEngine.DASHA_LORDS[start_idx:] + DashaEngine.DASHA_LORDS[:start_idx]
-        
+        sub_periods: List[Dict[str, Any]] = []
+        current_jd = start_jd
+
+        start_idx = self.DASHA_LORDS.index(main_lord)
+        ordered_lords = self.DASHA_LORDS[start_idx:] + self.DASHA_LORDS[:start_idx]
+
         for sub_lord in ordered_lords:
-            sub_duration_years = (main_duration * DashaEngine.DASHA_YEARS[sub_lord]) / 120.0
-            days = sub_duration_years * 365.2425
-            end_date = current_date + timedelta(days=days)
-            
+            # Formula: SubPeriod = (MainPeriod * SubPeriodYears) / 120
+            sub_duration_years = (main_duration_years * self.DASHA_YEARS[sub_lord]) / 120.0
+            duration_days = sub_duration_years * self.year_length
+
+            end_jd = current_jd + duration_days
+
             period_data = {
                 "lord": sub_lord,
-                "start": current_date.strftime("%Y-%m-%d"),
-                "end": end_date.strftime("%Y-%m-%d"),
+                "start": self._jd_to_date_str(current_jd),
+                "end": self._jd_to_date_str(end_jd),
+                "start_jd": current_jd,
+                "end_jd": end_jd,
                 "duration_years": round(sub_duration_years, 4),
                 "level": level,
-                "sub_periods": [] 
+                "sub_periods": [],
             }
-            
+
             sub_periods.append(period_data)
-            current_date = end_date
-            
+            current_jd = end_jd
+
         return sub_periods
 
-    @staticmethod
-    def calculate_vimshottari_nested(moon_longitude: float, birth_date: datetime) -> List[Dict]:
-        """محاسبه درخت کامل داشاها (فقط سطح ۲ برای همه)"""
-        
-        # --- FIX: حذف تایم زون برای مقایسه یکدست ---
-        # ما فقط با تاریخ سر و کار داریم، ساعت و منطقه زمانی در مقیاس سالانه داشا مهم نیستند
-        birth_naive = birth_date.replace(tzinfo=None)
-        # -------------------------------------------
+    def calculate_vimshottari(self, ctx: ChartContext) -> List[Dict]:
+        """
+        Calculates Vimshottari Dasha using strict Julian Day arithmetic.
+        """
+        moon = ctx.get_planet("Moon")
+        if not moon:
+            return []
 
+        moon_lon = moon.longitude
+        birth_jd = ctx.jd_ut
+
+        # 1. Determine Starting State (Nakshatra)
         nak_span = 13.333333333
-        nak_index_float = moon_longitude / nak_span
+        nak_index_float = moon_lon / nak_span
         nak_index = int(nak_index_float)
+
+        # Fraction of Nakshatra passed
         passed_fraction = nak_index_float - nak_index
-        remaining_fraction = 1.0 - passed_fraction
-        
+
+        # Determine First Lord (Standard Sequence)
         first_lord_idx = nak_index % 9
-        first_lord = DashaEngine.DASHA_LORDS[first_lord_idx]
-        
-        full_years_first = DashaEngine.DASHA_YEARS[first_lord]
-        balance_years = full_years_first * remaining_fraction
-        spent_years = full_years_first - balance_years
-        
-        # استفاده از تاریخ Naive
-        theoretical_start = birth_naive - timedelta(days=spent_years * 365.2425)
-        
-        dashas = []
-        current_date_theoretical = theoretical_start
-        
-        for _ in range(2): 
+        first_lord = self.DASHA_LORDS[first_lord_idx]
+
+        # 2. Calculate Balance at Birth
+        full_years_first = self.DASHA_YEARS[first_lord]
+        spent_years = full_years_first * passed_fraction
+
+        # 3. Determine Theoretical Start of the First Mahadasha
+        spent_days = spent_years * self.year_length
+        theoretical_start_jd = birth_jd - spent_days
+
+        dashas: List[Dict[str, Any]] = []
+        current_jd = theoretical_start_jd
+
+        # 4. Generate Cycles (Covering 120+ years)
+        for _ in range(2):  # two cycles cover 240 years
             for i in range(9):
                 curr_lord_idx = (first_lord_idx + i) % 9
-                lord = DashaEngine.DASHA_LORDS[curr_lord_idx]
-                duration = DashaEngine.DASHA_YEARS[lord]
-                
-                end_date = current_date_theoretical + timedelta(days=duration * 365.2425)
-                
-                # مقایسه: Naive با Naive (ایمن شد)
-                if end_date > birth_naive:
-                    real_start = max(birth_naive, current_date_theoretical)
-                    
-                    antardashas = DashaEngine._get_sub_periods(lord, current_date_theoretical, duration, 2)
-                    
-                    # فیلتر کردن و مقایسه ایمن
+                lord = self.DASHA_LORDS[curr_lord_idx]
+
+                duration_years = self.DASHA_YEARS[lord]
+                duration_days = duration_years * self.year_length
+
+                end_jd = current_jd + duration_days
+
+                if end_jd > birth_jd:
+                    antardashas = self._get_sub_periods_jd(lord, current_jd, duration_years, 2)
+
                     valid_antars = []
                     for ad in antardashas:
-                        ad_end = datetime.strptime(ad['end'], "%Y-%m-%d")
-                        if ad_end > birth_naive:
+                        if ad["end_jd"] > birth_jd:
+                            if ad["start_jd"] < birth_jd:
+                                ad["start"] = self._jd_to_date_str(birth_jd)
                             valid_antars.append(ad)
 
-                    # اصلاح شروع اولین آنترداشای معتبر
-                    if valid_antars and valid_antars[0]['start'] < birth_naive.strftime("%Y-%m-%d"):
-                         valid_antars[0]['start'] = birth_naive.strftime("%Y-%m-%d")
+                    display_start = self._jd_to_date_str(max(birth_jd, current_jd))
 
                     dasha_entry = {
                         "lord": lord,
-                        "start": real_start.strftime("%Y-%m-%d"),
-                        "end": end_date.strftime("%Y-%m-%d"),
-                        "duration_years": duration,
+                        "start": display_start,
+                        "end": self._jd_to_date_str(end_jd),
+                        "start_jd": max(birth_jd, current_jd),
+                        "end_jd": end_jd,
+                        "duration_years": duration_years,
                         "level": 1,
-                        "sub_periods": valid_antars
+                        "sub_periods": valid_antars,
                     }
                     dashas.append(dasha_entry)
-                
-                current_date_theoretical = end_date
-                if len(dashas) >= 15: break
-            if len(dashas) >= 15: break
+
+                current_jd = end_jd
+                if len(dashas) >= 15:
+                    break
+            if len(dashas) >= 15:
+                break
 
         return dashas
-
-    @staticmethod
-    def get_current_chain(all_dashas: List[Dict], target_date: datetime) -> List[Dict]:
-        """پیدا کردن زنجیره دقیق زمان حال (Maha > Antar > Pratyantar)"""
-        t_str = target_date.strftime("%Y-%m-%d")
-        chain = []
-        
-        # 1. Find Maha Dasha
-        maha = None
-        for d in all_dashas:
-            if d['start'] <= t_str < d['end']:
-                maha = d
-                break
-        
-        if not maha: return []
-        chain.append({k:v for k,v in maha.items() if k != 'sub_periods'})
-        
-        # 2. Find Antar Dasha
-        antar = None
-        if 'sub_periods' in maha and maha['sub_periods']:
-            for ad in maha['sub_periods']:
-                if ad['start'] <= t_str < ad['end']:
-                    antar = ad
-                    break
-        
-        if antar:
-            chain.append({k:v for k,v in antar.items() if k != 'sub_periods'})
-            
-            # 3. Calculate Pratyantar (Level 3) - On-the-fly calculation
-            antar_lord = antar['lord']
-            antar_duration = antar['duration_years']
-            antar_start = datetime.strptime(antar['start'], "%Y-%m-%d")
-            
-            pratyantars = DashaEngine._get_sub_periods(antar_lord, antar_start, antar_duration, 3)
-            
-            for pd in pratyantars:
-                if pd['start'] <= t_str < pd['end']:
-                    chain.append(pd)
-                    break
-                    
-        return chain
