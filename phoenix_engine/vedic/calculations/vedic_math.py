@@ -1,42 +1,46 @@
-from typing import Tuple, Dict
+from typing import List
 
 
 class VedicMath:
     """
-    محاسبات ریاضی خاص زمان‌های ودیک (Ghati, Vighati, etc.)
-    الهام گرفته از JHora utils.
+    Mathematical utilities for High-Precision Vedic Calculations.
+    Derived from JHora algorithms (Inverse Lagrange Interpolation).
     """
 
     @staticmethod
-    def time_diff_to_ghati(jd_birth: float, jd_sunrise: float) -> Tuple[float, str]:
+    def inverse_lagrange(x: List[float], y: List[float], ya: float) -> float:
         """
-        تبدیل فاصله زمانی تولد و طلوع به گاتی (Ghati).
-        هر روز (24 ساعت) = 60 گاتی.
-        هر گاتی = 24 دقیقه.
+        Given two lists x and y, find the value of x = xa when y = ya.
+        Used to find the exact time when a Tithi/Nakshatra ends.
         """
-        diff = jd_birth - jd_sunrise
-        if diff < 0:
-            diff += 1.0
-        ghatis_float = diff * 60.0
-        g = int(ghatis_float)
-        rem_g = (ghatis_float - g) * 60
-        v = int(rem_g)
-        rem_v = (rem_g - v) * 60
-        p = int(rem_v)
-        text = f"{g}:{v}:{p}"
-        return ghatis_float, text
+        assert len(x) == len(y)
+        total = 0.0
+        n = len(x)
+
+        for i in range(n):
+            numer = 1.0
+            denom = 1.0
+            for j in range(n):
+                if j != i:
+                    numer *= (ya - y[j])
+                    denom *= (y[i] - y[j])
+
+            total += numer * x[i] / denom
+
+        return total
 
     @staticmethod
-    def get_sexagenary_year(year_index: int) -> str:
+    def unwrap_angles(angles: List[float]) -> List[float]:
         """
-        نام سال‌های سامواتسارا (Samvatsara) - چرخه 60 ساله مشتری
+        Handles the 360 -> 0 crossover for interpolation.
+        Example: [358, 359, 1, 2] becomes [358, 359, 361, 362]
         """
-        samvatsaras = [
-            "Prabhava", "Vibhava", "Shukla", "Pramoda", "Prajapati", "Angira", "Shrimukha", "Bhava", "Yuva", "Dhatri",
-            "Ishwara", "Bahudhanya", "Pramathi", "Vikrama", "Vrusha", "Chitrabhanu", "Subhanu", "Tarana", "Parthiva", "Vyaya",
-            "Sarvajit", "Sarvadhari", "Virodhi", "Vikriti", "Khara", "Nandana", "Vijaya", "Jaya", "Manmatha", "Durmukha",
-            "Hemalamba", "Vilambi", "Vikari", "Sharvari", "Plava", "Shubhakrut", "Shobhakrut", "Krodhi", "Vishvavasu", "Parabhava",
-            "Plavanga", "Kilaka", "Saumya", "Sadharana", "Virodhikrut", "Paridhavi", "Pramadicha", "Ananda", "Rakshasa", "Nala",
-            "Pingala", "Kalayukta", "Siddharthi", "Roudra", "Durmati", "Dundubhi", "Rudhirodgari", "Raktakshi", "Krodhana", "Akshaya"
-        ]
-        return samvatsaras[year_index % 60]
+        result = [angles[0]]
+        for i in range(1, len(angles)):
+            angle = angles[i]
+            if angle < result[i - 1] - 180:
+                angle += 360
+            elif angle > result[i - 1] + 180:
+                angle -= 360
+            result.append(angle)
+        return result
