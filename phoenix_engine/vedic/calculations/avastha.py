@@ -1,57 +1,109 @@
-
 from typing import Dict, Any
 
+from phoenix_engine.core.context import ChartContext
+from phoenix_engine.domain.celestial import PlanetPosition
+
+
 class AvasthaEngine:
-    "موتور محاسبه حالات سیارات (Avasthas)"
-    
-    @staticmethod
-    def calculate_baladi_avastha(planet_name: str, degree: float, sign: int) -> str:
-        # Baladi Avastha (Age): Infant, Young, Adult, Old, Dead
-        # Odd Signs: 0-6 Infant, 6-12 Young, 12-18 Adult, 18-24 Old, 24-30 Dead
-        # Even Signs: Reverse order
-        
-        state = ""
-        is_odd = (sign % 2 != 0)
-        
-        if 0 <= degree < 6:
-            state = "Bala (Infant)" if is_odd else "Mrit (Dead)"
-        elif 6 <= degree < 12:
-            state = "Kumara (Young)" if is_odd else "Vriddha (Old)"
-        elif 12 <= degree < 18:
-            state = "Yuva (Adult)" # Best state
-        elif 18 <= degree < 24:
-            state = "Vriddha (Old)" if is_odd else "Kumara (Young)"
-        elif 24 <= degree <= 30:
-            state = "Mrit (Dead)" if is_odd else "Bala (Infant)"
-            
-        return state
+    """
+    Advanced Avastha Engine (JHora/BPHS Standard).
+    Calculates:
+    1. Baladi (Age): Infant, Young, etc.
+    2. Jagradadi (Consciousness): Awake, Dreaming, Sleep.
+    3. Lajjitaadi (Mood/State): The most critical predictive avasthas (Shamed, Proud, Starved, etc.).
+    """
 
     @staticmethod
-    def calculate_jagradadi_avastha(planet_name: str, is_retrograde: bool, is_exalted: bool, is_debilitated: bool, house_type: str) -> str:
-        # Jagradadi (Consciousness): Jagrat (Awake), Swapna (Dreaming), Sushupti (Deep Sleep)
-        if is_exalted or house_type == "Own":
-            return "Jagrat (Awake)" # Fully effective
-        elif is_debilitated or is_retrograde: 
-            # Note: Retrogression logic varies, often considered strong (Chesta) but unpredictable
-            return "Sushupti (Deep Sleep)" # Or specialized state
-        else:
-            return "Swapna (Dreaming)" # Average
-
-    @staticmethod
-    def calculate_all(planets: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+    def calculate_avasthas(ctx: ChartContext) -> Dict[str, Dict[str, Any]]:
         results = {}
+        planets = ctx.planets
+
         for name, p in planets.items():
-            if name in ["Rahu", "Ketu", "Ascendant"]: continue
-            
-            # Baladi
-            baladi = AvasthaEngine.calculate_baladi_avastha(name, p.degree, p.sign)
-            
-            # Jagradadi (Simplified)
-            # Needs Maitri/Sign knowledge. For now, basic based on degree/speed
-            # Will be enriched in Semantic Layer
-            
+            if name in ["Rahu", "Ketu", "Ascendant", "Uranus", "Neptune", "Pluto"]:
+                continue
+
+            baladi = AvasthaEngine._calc_baladi(p.degree, p.sign)
+            jagradadi = AvasthaEngine._calc_jagradadi(p)
+            lajjitaadi = AvasthaEngine._calc_lajjitaadi(p, planets)
+
             results[name] = {
                 "baladi": baladi,
-                "jagradadi": "Pending Maitri Check" 
+                "jagradadi": jagradadi,
+                "lajjitaadi": lajjitaadi,
+                "summary": f"{baladi} | {jagradadi}"
             }
+
         return results
+
+    @staticmethod
+    def _calc_baladi(degree: float, sign: int) -> str:
+        is_odd = (sign % 2 != 0)
+
+        if 0 <= degree < 6:
+            return "Bala (Infant)" if is_odd else "Mrit (Dead)"
+        elif 6 <= degree < 12:
+            return "Kumara (Young)" if is_odd else "Vriddha (Old)"
+        elif 12 <= degree < 18:
+            return "Yuva (Adult)"
+        elif 18 <= degree < 24:
+            return "Vriddha (Old)" if is_odd else "Kumara (Young)"
+        else:
+            return "Mrit (Dead)" if is_odd else "Bala (Infant)"
+
+    @staticmethod
+    def _calc_jagradadi(p: PlanetPosition) -> str:
+        if p.is_retrograde:
+            return "Jagrat (Awake)"
+        return "Swapna (Dreaming)"
+
+    @staticmethod
+    def _calc_lajjitaadi(p: PlanetPosition, all_planets: Dict[str, PlanetPosition]) -> Dict[str, bool]:
+        states = {
+            "Lajjita (Shamed)": False,
+            "Garvita (Proud)": False,
+            "Kshudhita (Starved)": False,
+            "Trishita (Thirsty)": False,
+            "Mudita (Delighted)": False,
+            "Kshobhita (Agitated)": False
+        }
+
+        is_joined_sun = False
+        is_joined_saturn = False
+        is_joined_mars = False
+        is_joined_rahu_ketu = False
+
+        for other_name, other_p in all_planets.items():
+            if other_name == p.name:
+                continue
+            if other_p.sign == p.sign:
+                if other_name == "Sun":
+                    is_joined_sun = True
+                if other_name == "Saturn":
+                    is_joined_saturn = True
+                if other_name == "Mars":
+                    is_joined_mars = True
+                if other_name in ["Rahu", "Ketu"]:
+                    is_joined_rahu_ketu = True
+
+        if p.house == 5 and (is_joined_rahu_ketu or is_joined_sun or is_joined_saturn or is_joined_mars):
+            states["Lajjita (Shamed)"] = True
+
+        exalt_map = {"Sun": 1, "Moon": 2, "Mars": 10, "Mercury": 6, "Jupiter": 4, "Venus": 12, "Saturn": 7}
+        if p.sign == exalt_map.get(p.name):
+            states["Garvita (Proud)"] = True
+
+        if p.name != "Saturn" and is_joined_saturn:
+            states["Kshudhita (Starved)"] = True
+
+        watery_signs = [4, 8, 12]
+        if p.sign in watery_signs and (is_joined_sun or is_joined_saturn or is_joined_mars):
+            states["Trishita (Thirsty)"] = True
+
+        joined_jupiter = any(k == "Jupiter" and v.sign == p.sign for k, v in all_planets.items())
+        if joined_jupiter and p.name != "Jupiter":
+            states["Mudita (Delighted)"] = True
+
+        if is_joined_sun and (is_joined_mars or is_joined_saturn):
+            states["Kshobhita (Agitated)"] = True
+
+        return {k: v for k, v in states.items() if v}
